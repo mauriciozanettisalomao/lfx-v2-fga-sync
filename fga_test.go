@@ -343,7 +343,11 @@ func (m *MockKeyValue) Delete(ctx context.Context, key string, opts ...jetstream
 func (m *MockKeyValue) Purge(ctx context.Context, key string, opts ...jetstream.KVDeleteOpt) error {
 	return nil
 }
-func (m *MockKeyValue) Watch(ctx context.Context, keys string, opts ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
+func (m *MockKeyValue) Watch(
+	ctx context.Context,
+	keys string,
+	opts ...jetstream.WatchOpt,
+) (jetstream.KeyWatcher, error) {
 	return nil, nil
 }
 func (m *MockKeyValue) WatchAll(ctx context.Context, opts ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
@@ -352,7 +356,11 @@ func (m *MockKeyValue) WatchAll(ctx context.Context, opts ...jetstream.WatchOpt)
 func (m *MockKeyValue) Keys(ctx context.Context, opts ...jetstream.WatchOpt) ([]string, error) {
 	return nil, nil
 }
-func (m *MockKeyValue) History(ctx context.Context, key string, opts ...jetstream.WatchOpt) ([]jetstream.KeyValueEntry, error) {
+func (m *MockKeyValue) History(
+	ctx context.Context,
+	key string,
+	opts ...jetstream.WatchOpt,
+) ([]jetstream.KeyValueEntry, error) {
 	return nil, nil
 }
 func (m *MockKeyValue) Bucket() string { return "test-bucket" }
@@ -428,10 +436,8 @@ func TestCacheInvalidationLogic(t *testing.T) {
 				if entry == nil {
 					t.Errorf("%s: expected entry, got nil", tt.description)
 				}
-			} else {
-				if err == nil && entry != nil {
-					t.Errorf("%s: expected no entry or error, got entry", tt.description)
-				}
+			} else if err == nil && entry != nil {
+				t.Errorf("%s: expected no entry or error, got entry", tt.description)
 			}
 		})
 	}
@@ -445,30 +451,6 @@ func BenchmarkCacheKeyEncoding(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = "rel." + encoder.EncodeToString([]byte(relationKey))
-	}
-}
-
-// BenchmarkBatchCheckItemCreation benchmarks creating batch check items
-func BenchmarkBatchCheckItemCreation(b *testing.B) {
-	checkRequests := make([]ClientCheckRequest, 100)
-	for i := range checkRequests {
-		checkRequests[i] = ClientCheckRequest{
-			User:     "user:" + string(rune(i)),
-			Relation: "admin",
-			Object:   "project:" + string(rune(i)),
-		}
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		tupleItems := make([]ClientBatchCheckItem, 0, len(checkRequests))
-		for _, tuple := range checkRequests {
-			tupleItems = append(tupleItems, ClientBatchCheckItem{
-				User:     tuple.User,
-				Relation: tuple.Relation,
-				Object:   tuple.Object,
-			})
-		}
 	}
 }
 

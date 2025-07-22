@@ -19,7 +19,6 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	openfga "github.com/openfga/go-sdk"
 
-	//nolint:staticcheck // ST1001: the recommended way of using the goa OpenFGA SDK client package is with the . import
 	. "github.com/openfga/go-sdk/client"
 )
 
@@ -92,11 +91,11 @@ func fgaReadObjectTuples(ctx context.Context, object string) ([]openfga.Tuple, e
 	return tuples, nil
 }
 
-func fgaSyncObjectTuples(ctx context.Context, object string, relations []ClientTupleKey) (writes []ClientTupleKey, deletes []ClientTupleKeyWithoutCondition, err error) {
+func getRelationsMap(object string, relations []ClientTupleKey) (map[string]ClientTupleKey, error) {
 	// Convert the passed relationships into a map.
 	relationsMap := make(map[string]ClientTupleKey)
 	for _, relation := range relations {
-		switch true {
+		switch {
 		case relation.Object == "":
 			relation.Object = object
 		case relation.Object != object:
@@ -111,13 +110,27 @@ func fgaSyncObjectTuples(ctx context.Context, object string, relations []ClientT
 		relationsMap[key] = relation
 	}
 
-	tuples, err := fgaReadObjectTuples(ctx, object)
+	return relationsMap, nil
+}
+
+func fgaSyncObjectTuples(
+	ctx context.Context,
+	object string,
+	relations []ClientTupleKey,
+) (
+	writes []ClientTupleKey,
+	deletes []ClientTupleKeyWithoutCondition,
+	err error,
+) {
+	relationsMap, err := getRelationsMap(object, relations)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// TODO: add this once the message is actually sent
-	//userAccessMessage := make([]byte, 0, 80*len(relations))
+	tuples, err := fgaReadObjectTuples(ctx, object)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Iterate over the effective OpenFGA tuples and compare them against the
 	// desired state of relationships passed as a function argument. Any matches
@@ -136,11 +149,15 @@ func fgaSyncObjectTuples(ctx context.Context, object string, relations []ClientT
 			delete(relationsMap, key)
 			if isUser := strings.HasPrefix(tuple.Key.User, "user:") && tuple.Key.User != "user:*"; isUser {
 				// Save this for a later user-access notification.
-				logger.With("message", fmt.Sprintf("%s#%s@%s\ttrue\n", tuple.Key.Object, tuple.Key.Relation, tuple.Key.User)).DebugContext(ctx, "will send user access notification")
-				//userAccessMessage = append(userAccessMessage, []byte(fmt.Sprintf("%s#%s@%s\ttrue\n", tuple.Key.Object, tuple.Key.Relation, tuple.Key.User))...)
+				msg := fmt.Sprintf("%s#%s@%s\ttrue\n", tuple.Key.Object, tuple.Key.Relation, tuple.Key.User)
+				logger.With("message", msg).DebugContext(ctx, "will send user access notification")
 			}
 		case false:
-			logger.With("user", tuple.Key.User, "relation", tuple.Key.Relation, "object", object).DebugContext(ctx, "will delete relation in batch write")
+			logger.With(
+				"user", tuple.Key.User,
+				"relation", tuple.Key.Relation,
+				"object", object,
+			).DebugContext(ctx, "will delete relation in batch write")
 			deletes = append(deletes, ClientTupleKeyWithoutCondition{
 				User:     tuple.Key.User,
 				Relation: tuple.Key.Relation,
@@ -153,7 +170,11 @@ func fgaSyncObjectTuples(ctx context.Context, object string, relations []ClientT
 	// new (not found in live OpenFGA) and therefore will be added to the "write"
 	// list for the batch-write request.
 	for _, relation := range relationsMap {
-		logger.With("user", relation.User, "relation", relation.Relation, "object", object).DebugContext(ctx, "will add relation in batch write")
+		logger.With(
+			"user", relation.User,
+			"relation", relation.Relation,
+			"object", object,
+		).DebugContext(ctx, "will add relation in batch write")
 		writes = append(writes, relation)
 		if isUser := strings.HasPrefix(relation.User, "user:"); isUser {
 			// Seed any (direct) user relationships to the cache after this function
@@ -166,10 +187,12 @@ func fgaSyncObjectTuples(ctx context.Context, object string, relations []ClientT
 			// members.
 			relationKey := relation.Object + "#" + relation.Relation + "@" + relation.User
 			cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
-			defer func(cacheKey string) {
+			// Execute cache update asynchronously without defer to avoid resource leak
+			go func(cacheKey string) {
 				// All direct relations handled in this function correspond to "true"
 				// access relations. This happens asynchronously so we are not checking
 				// for errors or logging anything.
+				//nolint:errcheck // This happens asynchronously so we are not checking for errors.
 				_, _ = cacheBucket.PutString(ctx, cacheKey, "true")
 			}(cacheKey)
 		}
@@ -200,6 +223,51 @@ func fgaSyncObjectTuples(ctx context.Context, object string, relations []ClientT
 	return writes, deletes, nil
 }
 
+func getLastCacheInvalidation(ctx context.Context) (time.Time, error) {
+	var lastInvalidation time.Time
+	entry, err := cacheBucket.Get(ctx, "inv")
+	switch {
+	case err == jetstream.ErrKeyNotFound:
+		// No invalidation in the TTL of the cache; all found cache entries are
+		// valid. Keep the zero-value of lastInvalidation.
+	case err != nil:
+		return time.Time{}, err
+	default:
+		lastInvalidation = entry.Created()
+	}
+
+	return lastInvalidation, nil
+}
+
+func appendToMessage(
+	message []byte,
+	result map[string]openfga.BatchCheckSingleResult,
+	mapCorrelationIDToTuple map[string]ClientBatchCheckItem,
+	ctx context.Context,
+) []byte {
+	for correlationID, resp := range result {
+		// This is the specific request tuple that the response corresponds to.
+		req, ok := mapCorrelationIDToTuple[correlationID]
+		if !ok {
+			continue
+		}
+		relationKey := req.Object + "#" + req.Relation + "@" + req.User
+		allowed := strconv.FormatBool(resp.GetAllowed())
+
+		// Append the result to our response message.
+		message = append(message, []byte(relationKey+"\t"+allowed+"\n")...)
+
+		// Cache the result.
+		cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
+		_, err := cacheBucket.Put(ctx, cacheKey, []byte(allowed))
+		if err != nil {
+			logger.With(errKey, err).ErrorContext(ctx, "failed to cache relation")
+		}
+	}
+
+	return message
+}
+
 // fgaCheckRelationships uses OpenFGA to determine multiple relationships in
 // bulk for any relationships not found in the cache.
 func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]byte, error) {
@@ -212,16 +280,9 @@ func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]
 	message := make([]byte, 0, 80*len(tuples))
 
 	// Get the most recent cache invalidation.
-	var lastInvalidation time.Time
-	entry, err := cacheBucket.Get(ctx, "inv")
-	switch {
-	case err == jetstream.ErrKeyNotFound:
-		// No invalidation in the TTL of the cache; all found cache entries are
-		// valid. Keep the zero-value of lastInvalidation.
-	case err != nil:
+	lastInvalidation, err := getLastCacheInvalidation(ctx)
+	if err != nil {
 		return nil, err
-	default:
-		lastInvalidation = entry.Created()
 	}
 
 	tuplesToCheck := make([]ClientBatchCheckItem, 0) // list of tuples to check in OpenFGA if not in cache
@@ -240,7 +301,8 @@ func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]
 		// Encode relation using base32 without padding to conform to the allowed
 		// characters for NATS subjects.
 		cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
-		entry, err := cacheBucket.Get(ctx, cacheKey)
+		var entry jetstream.KeyValueEntry
+		entry, err = cacheBucket.Get(ctx, cacheKey)
 		if err == jetstream.ErrKeyNotFound {
 			// No cache hit; continue.
 			cacheMisses.Add(1)
@@ -283,11 +345,11 @@ func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]
 
 	// Add correlation IDs to the tuples to check.
 	// Increment each correlation ID by 1, starting from 1.
-	mapCorrelationIdToTuple := make(map[string]ClientBatchCheckItem)
+	mapCorrelationIDToTuple := make(map[string]ClientBatchCheckItem)
 	for idx := range tuplesToCheck {
-		correlationId := fmt.Sprintf("%d", idx+1)
-		tuplesToCheck[idx].CorrelationId = correlationId
-		mapCorrelationIdToTuple[correlationId] = tuplesToCheck[idx]
+		correlationID := fmt.Sprintf("%d", idx+1)
+		tuplesToCheck[idx].CorrelationId = correlationID
+		mapCorrelationIDToTuple[correlationID] = tuplesToCheck[idx]
 	}
 
 	// Check all tuples that weren't found in the cache.
@@ -304,25 +366,7 @@ func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]
 	}
 
 	// Loop through the responses.
-	for correlationId, resp := range *batchResp.Result {
-		// This is the specific request tuple that the response corresponds to.
-		req, ok := mapCorrelationIdToTuple[correlationId]
-		if !ok {
-			continue
-		}
-		relationKey := req.Object + "#" + req.Relation + "@" + req.User
-		allowed := strconv.FormatBool(resp.GetAllowed())
-
-		// Append the result to our response message.
-		message = append(message, []byte(relationKey+"\t"+allowed+"\n")...)
-
-		// Cache the result.
-		cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
-		_, err := cacheBucket.Put(ctx, cacheKey, []byte(allowed))
-		if err != nil {
-			logger.With(errKey, err).ErrorContext(ctx, "failed to cache relation")
-		}
-	}
+	message = appendToMessage(message, *batchResp.Result, mapCorrelationIDToTuple, ctx)
 
 	if len(message) < 1 {
 		// This shouldn't happen (*batchResp was checked for ==0 above with an
@@ -339,7 +383,7 @@ func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]
 // payload format, which is a newline-delineated list of the format
 // `object#relation@user`.
 func fgaExtractCheckRequests(payload []byte) ([]ClientCheckRequest, error) {
-	var checkRequests []ClientCheckRequest
+	checkRequests := make([]ClientCheckRequest, 0)
 
 	lines := bytes.Split(payload, []byte("\n"))
 	for _, line := range lines {

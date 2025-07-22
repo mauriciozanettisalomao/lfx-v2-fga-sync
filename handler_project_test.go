@@ -1,12 +1,12 @@
+// Copyright The Linux Foundation and each contributor to LFX.
+// SPDX-License-Identifier: MIT
+
 package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"testing"
 
-	"github.com/linuxfoundation/lfx-v2-fga-sync/pkg/constants"
-	"github.com/nats-io/nats.go"
 	. "github.com/openfga/go-sdk/client"
 )
 
@@ -108,20 +108,11 @@ func TestProjectUpdateAccessHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create test message
-			msg := &nats.Msg{
-				Subject: fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectUpdateAccessSubject),
-				Data:    tt.messageData,
-			}
-
-			if tt.hasReply {
-				msg.Reply = "test.reply.inbox"
-			}
-
 			t.Logf("Test case: %s - %s", tt.name, tt.description)
 
 			// Note: Actual handler testing would require mocking fgaSyncObjectTuples
 			// This test documents expected behavior
+			// TODO: Actually test the handler. Update this test.
 		})
 	}
 }
@@ -181,20 +172,11 @@ func TestProjectDeleteAllAccessHandler(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create test message
-			msg := &nats.Msg{
-				Subject: fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectDeleteAllAccessSubject),
-				Data:    tt.messageData,
-			}
-
-			if tt.hasReply {
-				msg.Reply = "test.reply.inbox"
-			}
-
 			t.Logf("Test case: %s - %s", tt.name, tt.description)
 
 			// Note: Actual handler testing would require mocking fgaSyncObjectTuples
 			// This test documents expected behavior
+			// TODO: Actually test the handler. Update this test.
 		})
 	}
 }
@@ -441,13 +423,13 @@ func BenchmarkProjectUpdateHandler(b *testing.B) {
 		Auditors:  []string{"a1", "a2", "a3"},
 	}
 
-	data, _ := json.Marshal(project)
+	data, _ := json.Marshal(project) //nolint:errcheck // Benchmark test - error handling not needed
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Simulate parsing and tuple generation
 		var p projectStub
-		_ = json.Unmarshal(data, &p)
+		_ = json.Unmarshal(data, &p) //nolint:errcheck // Benchmark test - error handling not needed
 
 		tuples := fgaNewTupleKeySlice(10)
 		object := "project:" + p.UID

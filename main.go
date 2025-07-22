@@ -1,4 +1,4 @@
-// Copyright The Linux Foundation and its contributors.
+// Copyright The Linux Foundation and each contributor to LFX.
 // SPDX-License-Identifier: MIT
 
 // The fga-sync service.
@@ -33,6 +33,7 @@ const (
 var (
 	logger          *slog.Logger
 	lfxEnvironment  constants.LFXEnvironment
+	httpServer      *http.Server
 	natsURL         string
 	natsConn        *nats.Conn
 	jetstreamConn   jetstream.JetStream
@@ -90,56 +91,10 @@ func main() {
 
 	logger.With("url", os.Getenv("FGA_API_URL")).Info("OpenFGA client created")
 
-	// Support GET/POST monitoring "ping".
-	http.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) {
-		// This always returns as long as the service is still running. As this
-		// endpoint is expected to be used as a Kubernetes liveness check, this
-		// service must likewise self-detect non-recoverable errors and
-		// self-terminate.
-		_, err := fmt.Fprintf(w, "OK\n")
-		if err != nil {
-			logger.With(errKey, err).Error("error writing to response writer")
-		}
-	})
+	// Create HTTP handlers for health checks.
+	createHTTPHandlers()
 
-	// Basic health check.
-	http.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		if natsConn == nil {
-			http.Error(w, "no NATS connection", http.StatusServiceUnavailable)
-			return
-		}
-		if !natsConn.IsConnected() || natsConn.IsDraining() {
-			http.Error(w, "NATS connection not ready", http.StatusServiceUnavailable)
-			return
-		}
-		_, err := fmt.Fprintf(w, "OK\n")
-		if err != nil {
-			logger.With(errKey, err).Error("error writing to response writer")
-		}
-	})
-
-	// Add an http listener for health checks. This server does NOT participate
-	// in the graceful shutdown process; we want it to stay up until the process
-	// is killed, to avoid liveness checks failing during the graceful shutdown.
-	var addr string
-	if *bind == "*" {
-		addr = ":" + *port
-	} else {
-		addr = *bind + ":" + *port
-	}
-	httpServer := &http.Server{
-		Addr:              addr,
-		Handler:           http.DefaultServeMux,
-		ReadHeaderTimeout: 3 * time.Second,
-	}
-	go func() {
-		logger.Info("starting HTTP server", "addr", addr)
-		err := httpServer.ListenAndServe()
-		if err != nil && err != http.ErrServerClosed {
-			logger.With(errKey, err).Error("http listener error")
-			os.Exit(1)
-		}
-	}()
+	startHTTPListener(*bind, *port)
 
 	// Create a wait group which is used to wait while draining (gracefully
 	// closing) a connection.
@@ -185,24 +140,24 @@ func main() {
 	)
 	if err != nil {
 		logger.With(errKey, err).Error("error creating NATS client")
-		os.Exit(1)
+		return
 	}
 	logger.With("url", natsURL).Info("NATS client created")
 
 	jetstreamConn, err = jetstream.New(natsConn)
 	if err != nil {
 		logger.With(errKey, err).Error("error creating JetStream client")
-		os.Exit(1)
+		return
 	}
 	cacheBucket, err = jetstreamConn.KeyValue(context.Background(), cacheBucketName)
 	if err != nil {
 		logger.With(errKey, err).Error("error binding to cache bucket")
-		os.Exit(1)
+		return
 	}
 
 	if err = createQueueSubscriptions(); err != nil {
 		logger.With(errKey, err).Error("error creating queue subscriptions")
-		os.Exit(1)
+		return
 	}
 
 	// This next line blocks until SIGINT or SIGTERM is received, or NATS disconnects.
@@ -215,9 +170,9 @@ func main() {
 	// connection when complete.
 	if !natsConn.IsClosed() && !natsConn.IsDraining() {
 		logger.Info("draining NATS connections")
-		if err := natsConn.Drain(); err != nil {
+		if err = natsConn.Drain(); err != nil {
 			logger.With(errKey, err).Error("error draining NATS connection")
-			os.Exit(1)
+			return
 		}
 	}
 
@@ -230,28 +185,83 @@ func main() {
 	}
 }
 
+func startHTTPListener(bind, port string) {
+	// Add an http listener for health checks. This server does NOT participate
+	// in the graceful shutdown process; we want it to stay up until the process
+	// is killed, to avoid liveness checks failing during the graceful shutdown.
+	var addr string
+	if bind == "*" {
+		addr = ":" + port
+	} else {
+		addr = bind + ":" + port
+	}
+	httpServer = &http.Server{
+		Addr:              addr,
+		Handler:           http.DefaultServeMux,
+		ReadHeaderTimeout: 3 * time.Second,
+	}
+	go func() {
+		logger.Info("starting HTTP server", "addr", addr)
+		err := httpServer.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			logger.With(errKey, err).Error("http listener error")
+		}
+	}()
+}
+
+// createHTTPHandlers creates HTTP handlers for health checks.
+func createHTTPHandlers() {
+	// Support GET/POST monitoring "ping".
+	http.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) {
+		// This always returns as long as the service is still running. As this
+		// endpoint is expected to be used as a Kubernetes liveness check, this
+		// service must likewise self-detect non-recoverable errors and
+		// self-terminate.
+		_, err := fmt.Fprintf(w, "OK\n")
+		if err != nil {
+			logger.With(errKey, err).Error("error writing to response writer")
+		}
+	})
+
+	// Basic health check.
+	http.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		if natsConn == nil {
+			http.Error(w, "no NATS connection", http.StatusServiceUnavailable)
+			return
+		}
+		if !natsConn.IsConnected() || natsConn.IsDraining() {
+			http.Error(w, "NATS connection not ready", http.StatusServiceUnavailable)
+			return
+		}
+		_, err := fmt.Fprintf(w, "OK\n")
+		if err != nil {
+			logger.With(errKey, err).Error("error writing to response writer")
+		}
+	})
+}
+
 // createQueueSubscriptions creates queue subscriptions for the NATS subjects.
 func createQueueSubscriptions() (err error) {
-	accessCheckSubject := fmt.Sprintf("%s%s", lfxEnvironment, constants.AccessCheckSubject)
-	if _, err = natsConn.QueueSubscribe(accessCheckSubject, constants.FgaSyncQueue, accessCheckHandler); err != nil {
-		logger.With(errKey, err, "subject", accessCheckSubject).Error("error subscribing to NATS subject")
+	subject := fmt.Sprintf("%s%s", lfxEnvironment, constants.AccessCheckSubject)
+	if _, err = natsConn.QueueSubscribe(subject, constants.FgaSyncQueue, accessCheckHandler); err != nil {
+		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
 		return err
 	}
-	logger.With("subject", accessCheckSubject).Info("subscribed to NATS subject")
+	logger.With("subject", subject).Info("subscribed to NATS subject")
 
-	projectUpdateAccessSubject := fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectUpdateAccessSubject)
-	if _, err = natsConn.QueueSubscribe(projectUpdateAccessSubject, constants.FgaSyncQueue, projectUpdateAccessHandler); err != nil {
-		logger.With(errKey, err, "subject", projectUpdateAccessSubject).Error("error subscribing to NATS subject")
+	subject = fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectUpdateAccessSubject)
+	if _, err = natsConn.QueueSubscribe(subject, constants.FgaSyncQueue, projectUpdateAccessHandler); err != nil {
+		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
 		return err
 	}
-	logger.With("subject", projectUpdateAccessSubject).Info("subscribed to NATS subject")
+	logger.With("subject", subject).Info("subscribed to NATS subject")
 
-	projectDeleteAllAccessSubject := fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectDeleteAllAccessSubject)
-	if _, err = natsConn.QueueSubscribe(projectDeleteAllAccessSubject, constants.FgaSyncQueue, projectDeleteAllAccessHandler); err != nil {
-		logger.With(errKey, err, "subject", projectDeleteAllAccessSubject).Error("error subscribing to NATS subject")
+	subject = fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectDeleteAllAccessSubject)
+	if _, err = natsConn.QueueSubscribe(subject, constants.FgaSyncQueue, projectDeleteAllAccessHandler); err != nil {
+		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
 		return err
 	}
-	logger.With("subject", projectDeleteAllAccessSubject).Info("subscribed to NATS subject")
+	logger.With("subject", subject).Info("subscribed to NATS subject")
 
 	return nil
 }

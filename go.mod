@@ -1,9 +1,9 @@
-// Copyright The Linux Foundation and its contributors.
+// Copyright The Linux Foundation and each contributor to LFX.
 // SPDX-License-Identifier: MIT
 
 module github.com/linuxfoundation/lfx-v2-fga-sync
 
-go 1.24.4
+go 1.23.0
 
 require (
 	github.com/nats-io/nats.go v1.43.0

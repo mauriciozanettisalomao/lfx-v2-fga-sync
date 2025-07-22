@@ -66,6 +66,9 @@ func accessCheckHandler(message *nats.Msg) {
 			return
 		}
 
-		logger.With("message", string(message.Data), "response", string(response)).InfoContext(ctx, "sent access check response")
+		logger.With(
+			"message", string(message.Data),
+			"response", string(response),
+		).InfoContext(ctx, "sent access check response")
 	}
 }

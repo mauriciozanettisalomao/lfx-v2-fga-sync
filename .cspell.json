@@ -58,7 +58,13 @@
     "readyz",
     "adminuser",
     "securecodewarrior",
-    "codecov"
+    "codecov",
+    "fieldalignment",
+    "copyloopvar",
+    "Expvar",
+    "expvar",
+    "01JZNYHPGTB034VY61QCQAXJZ7",
+    "01JZNYAVGM6F9N8CNK0MCPAHMT"
   ],
   "overrides": [
     {

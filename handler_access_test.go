@@ -219,7 +219,7 @@ func BenchmarkFgaParseCheckRequest(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = fgaParseCheckRequest(line)
+		_, _ = fgaParseCheckRequest(line) //nolint:errcheck // Benchmark test - error handling not needed
 	}
 }
 
@@ -229,7 +229,7 @@ func BenchmarkFgaExtractCheckRequests(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = fgaExtractCheckRequests(payload)
+		_, _ = fgaExtractCheckRequests(payload) //nolint:errcheck // Benchmark test - error handling not needed
 	}
 }
 

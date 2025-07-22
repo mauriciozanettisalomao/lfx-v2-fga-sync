@@ -70,7 +70,12 @@ func projectUpdateAccessHandler(message *nats.Msg) {
 		return
 	}
 
-	logger.With("tuples", tuples, "object", object, "writes", tuplesWrites, "deletes", tuplesDeletes).InfoContext(ctx, "synced tuples")
+	logger.With(
+		"tuples", tuples,
+		"object", object,
+		"writes", tuplesWrites,
+		"deletes", tuplesDeletes,
+	).InfoContext(ctx, "synced tuples")
 
 	if message.Reply != "" {
 		// Send a reply if an inbox was provided.
