@@ -22,6 +22,7 @@ import (
 )
 
 const (
+	// The slog key for errors.
 	errKey            = "error"
 	defaultListenPort = "8080"
 	// gracefulShutdownSeconds should be higher than NATS client
@@ -242,22 +243,24 @@ func createHTTPHandlers() {
 
 // createQueueSubscriptions creates queue subscriptions for the NATS subjects.
 func createQueueSubscriptions() (err error) {
+	queue := fmt.Sprintf("%s%s", lfxEnvironment, constants.FgaSyncQueue)
+
 	subject := fmt.Sprintf("%s%s", lfxEnvironment, constants.AccessCheckSubject)
-	if _, err = natsConn.QueueSubscribe(subject, constants.FgaSyncQueue, accessCheckHandler); err != nil {
+	if _, err = natsConn.QueueSubscribe(subject, queue, accessCheckHandler); err != nil {
 		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
 		return err
 	}
 	logger.With("subject", subject).Info("subscribed to NATS subject")
 
 	subject = fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectUpdateAccessSubject)
-	if _, err = natsConn.QueueSubscribe(subject, constants.FgaSyncQueue, projectUpdateAccessHandler); err != nil {
+	if _, err = natsConn.QueueSubscribe(subject, queue, projectUpdateAccessHandler); err != nil {
 		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
 		return err
 	}
 	logger.With("subject", subject).Info("subscribed to NATS subject")
 
 	subject = fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectDeleteAllAccessSubject)
-	if _, err = natsConn.QueueSubscribe(subject, constants.FgaSyncQueue, projectDeleteAllAccessHandler); err != nil {
+	if _, err = natsConn.QueueSubscribe(subject, queue, projectDeleteAllAccessHandler); err != nil {
 		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
 		return err
 	}

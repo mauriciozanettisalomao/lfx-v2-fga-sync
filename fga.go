@@ -189,11 +189,15 @@ func fgaSyncObjectTuples(
 			cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
 			// Execute cache update asynchronously without defer to avoid resource leak
 			go func(cacheKey string) {
+				// Define a timeout context for the cache update operation.
+				timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				defer cancel() // Ensure the context is cleaned up after the operation.
+
 				// All direct relations handled in this function correspond to "true"
 				// access relations. This happens asynchronously so we are not checking
 				// for errors or logging anything.
 				//nolint:errcheck // This happens asynchronously so we are not checking for errors.
-				_, _ = cacheBucket.PutString(ctx, cacheKey, "true")
+				_, _ = cacheBucket.PutString(timeoutCtx, cacheKey, "true")
 			}(cacheKey)
 		}
 	}

@@ -45,7 +45,7 @@ graph TB
 
 ### Prerequisites
 
-- Go 1.24.4 or later
+- Go 1.23 or later
 - NATS Server with JetStream enabled
 - OpenFGA server
 - Docker (optional)
@@ -73,7 +73,7 @@ graph TB
    # Create OpenFGA store
    curl -X POST $FGA_API \
      -H "Content-Type: application/json" \
-     -d '{"name": "lfx-fga-sync"}'
+     -d '{"name": "lfx_core"}'
    
    STORE_ID=$(curl -s "${FGA_API}/stores" | jq -r '.stores[] | select(.name="lfx_core") | .id')
    
