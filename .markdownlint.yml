@@ -1,0 +1,25 @@
+# Copyright The Linux Foundation and each contributor to LFX.
+# SPDX-License-Identifier: MIT
+---
+# Markdownlint configuration
+default: true
+
+# Line length
+MD013:
+  line_length: 120
+  code_blocks: false
+  tables: false
+
+# Multiple headers with the same content
+MD024:
+  siblings_only: true
+
+# Inline HTML
+MD033:
+  allowed_elements: ["br", "sub", "sup"]
+
+# Emphasis used instead of a heading
+MD036: false
+
+# First line in file should be a top level heading
+MD041: false

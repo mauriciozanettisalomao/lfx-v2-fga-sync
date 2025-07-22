@@ -1,0 +1,32 @@
+// Copyright The Linux Foundation and each contributor to LFX.
+// SPDX-License-Identifier: MIT
+
+package constants
+
+// NATS Key-Value store bucket names.
+const (
+	// KVBucketNameSyncCache is the name of the KV bucket for the FGA sync cache.
+	KVBucketNameSyncCache = "fga-sync-cache"
+)
+
+// NATS wildcard subjects that the FGA sync service handles messages about.
+const (
+	// AccessCheckSubject is the subject for the access check request.
+	// The subject is of the form: <lfx_environment>.lfx.access_check.request
+	AccessCheckSubject = ".lfx.access_check.request"
+
+	// ProjectUpdateAccessSubject is the subject for the project access control updates.
+	// The subject is of the form: <lfx_environment>.lfx.update_access.project
+	ProjectUpdateAccessSubject = ".lfx.update_access.project"
+
+	// ProjectDeleteAllAccessSubject is the subject for the project access control deletion.
+	// The subject is of the form: <lfx_environment>.lfx.delete_all_access.project
+	ProjectDeleteAllAccessSubject = ".lfx.delete_all_access.project"
+)
+
+// NATS queue subjects that the FGA sync service handles messages about.
+const (
+	// FgaSyncQueue is the subject name for the FGA sync.
+	// The subject is of the form: <lfx_environment>.lfx.fga-sync.queue
+	FgaSyncQueue = ".lfx.fga-sync.queue"
+)

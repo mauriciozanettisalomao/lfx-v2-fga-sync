@@ -1,0 +1,391 @@
+// Copyright The Linux Foundation and each contributor to LFX.
+// SPDX-License-Identifier: MIT
+
+// The fga-sync service.
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/base32"
+	"errors"
+	"expvar"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
+	openfga "github.com/openfga/go-sdk"
+
+	//nolint:staticcheck // ST1001: the recommended way of using the goa OpenFGA SDK client package is with the . import
+	. "github.com/openfga/go-sdk/client"
+)
+
+// Note: all OpenFGA SDK calls are kept in the same file due to the namespace
+// pollution which is the recommended way of using this SDK.
+
+var (
+	fgaClient       *OpenFgaClient
+	cacheHits       *expvar.Int
+	cacheStaleHits  *expvar.Int
+	cacheMisses     *expvar.Int
+	cacheKeyEncoder = base32.StdEncoding.WithPadding(base32.NoPadding)
+)
+
+func init() {
+	cacheHits = expvar.NewInt("cache_hits")
+	cacheStaleHits = expvar.NewInt("cache_stale_hits")
+	cacheMisses = expvar.NewInt("cache_misses")
+}
+
+// connectFga initializes the global shared fgaClient connection. This demo
+// does not use or support authentication.
+func connectFga() error {
+	var err error
+	fgaClient, err = NewSdkClient(&ClientConfiguration{
+		ApiUrl:               os.Getenv("FGA_API_URL"),
+		StoreId:              os.Getenv("FGA_STORE_ID"),
+		AuthorizationModelId: os.Getenv("FGA_MODEL_ID"),
+	})
+	return err
+}
+
+// fgaTupleKeySlice abstracts the creation of a ClientTupleKey slice for our
+// handler functions.
+func fgaNewTupleKeySlice(size int) []ClientTupleKey {
+	// Preallocate our slice to avoid extra allocations.
+	slice := make([]ClientTupleKey, 0, size)
+	return slice
+}
+
+// fgaTupleKey abstracts the creation of a ClientTupleKey for our handler functions.
+func fgaTupleKey(user, relation, object string) ClientTupleKey {
+	return ClientTupleKey{
+		User:     user,
+		Relation: relation,
+		Object:   object,
+	}
+}
+
+// fgaReadObjectTuples is a pagination helper to fetch all direct relationships (_no_
+// transitive evaluations) defined against a given object.
+func fgaReadObjectTuples(ctx context.Context, object string) ([]openfga.Tuple, error) {
+	req := ClientReadRequest{
+		Object: openfga.PtrString(object),
+	}
+	options := ClientReadOptions{}
+	var tuples []openfga.Tuple
+	for {
+		resp, err := fgaClient.Read(ctx).Body(req).Options(options).Execute()
+		if err != nil {
+			return nil, err
+		}
+		tuples = append(tuples, resp.Tuples...)
+		if resp.ContinuationToken == "" {
+			break
+		}
+		options.ContinuationToken = openfga.PtrString(resp.ContinuationToken)
+	}
+
+	return tuples, nil
+}
+
+func fgaSyncObjectTuples(ctx context.Context, object string, relations []ClientTupleKey) (writes []ClientTupleKey, deletes []ClientTupleKeyWithoutCondition, err error) {
+	// Convert the passed relationships into a map.
+	relationsMap := make(map[string]ClientTupleKey)
+	for _, relation := range relations {
+		switch true {
+		case relation.Object == "":
+			relation.Object = object
+		case relation.Object != object:
+			// Not expected to happen, but ensure this function only syncs
+			// relationships for a single object at a time.
+			continue
+		}
+		// OpenFGA uses a composite key for tuples of the form
+		// "project:acme#writer@user:alice", so our "relation@user" map key should
+		// be similarly safe (no need for content escaping).
+		key := relation.Relation + "@" + relation.User
+		relationsMap[key] = relation
+	}
+
+	tuples, err := fgaReadObjectTuples(ctx, object)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// TODO: add this once the message is actually sent
+	//userAccessMessage := make([]byte, 0, 80*len(relations))
+
+	// Iterate over the effective OpenFGA tuples and compare them against the
+	// desired state of relationships passed as a function argument. Any matches
+	// seen are removed from "map" version of the desired relationships. Any live
+	// tuples not requested are added to the "deletes" list for the batch-write
+	// request. Any tuples for "user:<principal>" are added to a NATS message for
+	// a subsequent notify-after-invalidation.
+	for _, tuple := range tuples {
+		// See comment on our map key format earlier in this function.
+		key := tuple.Key.Relation + "@" + tuple.Key.User
+		_, match := relationsMap[key]
+		switch match {
+		case true:
+			// Desired state matches current state. Remove the match from "desired
+			// state" since we won't need to write/insert it.
+			delete(relationsMap, key)
+			if isUser := strings.HasPrefix(tuple.Key.User, "user:") && tuple.Key.User != "user:*"; isUser {
+				// Save this for a later user-access notification.
+				logger.With("message", fmt.Sprintf("%s#%s@%s\ttrue\n", tuple.Key.Object, tuple.Key.Relation, tuple.Key.User)).DebugContext(ctx, "will send user access notification")
+				//userAccessMessage = append(userAccessMessage, []byte(fmt.Sprintf("%s#%s@%s\ttrue\n", tuple.Key.Object, tuple.Key.Relation, tuple.Key.User))...)
+			}
+		case false:
+			logger.With("user", tuple.Key.User, "relation", tuple.Key.Relation, "object", object).DebugContext(ctx, "will delete relation in batch write")
+			deletes = append(deletes, ClientTupleKeyWithoutCondition{
+				User:     tuple.Key.User,
+				Relation: tuple.Key.Relation,
+				Object:   object,
+			})
+		}
+	}
+
+	// Any remaining relationships in the "map" version of the desired state are
+	// new (not found in live OpenFGA) and therefore will be added to the "write"
+	// list for the batch-write request.
+	for _, relation := range relationsMap {
+		logger.With("user", relation.User, "relation", relation.Relation, "object", object).DebugContext(ctx, "will add relation in batch write")
+		writes = append(writes, relation)
+		if isUser := strings.HasPrefix(relation.User, "user:"); isUser {
+			// Seed any (direct) user relationships to the cache after this function
+			// returns (after the invalidation cache write, if there is one). Only
+			// user relationships are written, because we don't support explicit
+			// querying of resource-parent relationships (or similar) which don't
+			// resolve back to a user. TBD figure out a way to measure the impact
+			// this has on overall cache effectiveness, especially once we start
+			// updating large-scale relationships, like groups with over a thousand
+			// members.
+			relationKey := relation.Object + "#" + relation.Relation + "@" + relation.User
+			cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
+			defer func(cacheKey string) {
+				// All direct relations handled in this function correspond to "true"
+				// access relations. This happens asynchronously so we are not checking
+				// for errors or logging anything.
+				_, _ = cacheBucket.PutString(ctx, cacheKey, "true")
+			}(cacheKey)
+		}
+	}
+
+	// Escape early if there is nothing to write or delete.
+	if len(writes) == 0 && len(deletes) == 0 {
+		return writes, deletes, nil
+	}
+
+	req := ClientWriteRequest{
+		Writes:  writes,
+		Deletes: deletes,
+	}
+
+	_, err = fgaClient.Write(ctx).Body(req).Execute()
+	if err != nil {
+		return writes, deletes, err
+	}
+
+	// Invalidate caches. Any value will work, since it is the native timestamp
+	// of the record that is checked, not its value.
+	_, err = cacheBucket.Put(ctx, "inv", []byte("1"))
+	if err != nil {
+		logger.With(errKey, err).ErrorContext(ctx, "failed to write cache invalidation marker")
+	}
+
+	return writes, deletes, nil
+}
+
+// fgaCheckRelationships uses OpenFGA to determine multiple relationships in
+// bulk for any relationships not found in the cache.
+func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]byte, error) {
+	if len(tuples) == 0 {
+		return nil, nil
+	}
+
+	// Preallocate our response slice based on an expected relation size of 80
+	// bytes each.
+	message := make([]byte, 0, 80*len(tuples))
+
+	// Get the most recent cache invalidation.
+	var lastInvalidation time.Time
+	entry, err := cacheBucket.Get(ctx, "inv")
+	switch {
+	case err == jetstream.ErrKeyNotFound:
+		// No invalidation in the TTL of the cache; all found cache entries are
+		// valid. Keep the zero-value of lastInvalidation.
+	case err != nil:
+		return nil, err
+	default:
+		lastInvalidation = entry.Created()
+	}
+
+	tuplesToCheck := make([]ClientBatchCheckItem, 0) // list of tuples to check in OpenFGA if not in cache
+	tupleItems := make([]ClientBatchCheckItem, 0, len(tuples))
+	for _, tuple := range tuples {
+		tupleItems = append(tupleItems, ClientBatchCheckItem{
+			User:     tuple.User,
+			Relation: tuple.Relation,
+			Object:   tuple.Object,
+		})
+	}
+
+	// Loop through the requested tuples to check for cache hits.
+	for i, tuple := range tupleItems {
+		relationKey := tuple.Object + "#" + tuple.Relation + "@" + tuple.User
+		// Encode relation using base32 without padding to conform to the allowed
+		// characters for NATS subjects.
+		cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
+		entry, err := cacheBucket.Get(ctx, cacheKey)
+		if err == jetstream.ErrKeyNotFound {
+			// No cache hit; continue.
+			cacheMisses.Add(1)
+			tuplesToCheck = append(tuplesToCheck, tuple)
+			continue
+		}
+		if err != nil {
+			// This is not expected (we would have exited early already on cache
+			// errors when grabbing the invalidation timestamp), but log the error
+			// and skip cache lookups for remaining items without breaking the
+			// request at this point.
+			logger.With(errKey, err).ErrorContext(ctx, "cache error; continuing")
+			// Add all remaining tuples to the check list.
+			tuplesToCheck = append(tuplesToCheck, tupleItems[i:]...)
+			break
+		}
+		// Cache entry was found. If the cache entry is older than the invalidation
+		// timestamp, skip it.
+		if lastInvalidation.After(entry.Created()) {
+			cacheStaleHits.Add(1)
+			tuplesToCheck = append(tuplesToCheck, tupleItems[i])
+			continue
+		}
+		cacheHits.Add(1)
+		// Append the cached value to our response message.
+		message = append(message, []byte(fmt.Sprintf("%s\t%s\n", relationKey, string(entry.Value())))...)
+	}
+
+	// If we have no tuples to check, return the cached message.
+	if len(tuplesToCheck) == 0 {
+		if len(message) < 1 {
+			// This shouldn't happen (tuples was non-empty, so tuplesToCheck should
+			// only be empty if we appended cache-hits to message), but it's a sanity
+			// test before applying the len(message)-1 slice range.
+			return nil, errors.New("batch check cached-built message empty")
+		}
+		// Trim the last newline and return.
+		return message[:len(message)-1], nil
+	}
+
+	// Add correlation IDs to the tuples to check.
+	// Increment each correlation ID by 1, starting from 1.
+	mapCorrelationIdToTuple := make(map[string]ClientBatchCheckItem)
+	for idx := range tuplesToCheck {
+		correlationId := fmt.Sprintf("%d", idx+1)
+		tuplesToCheck[idx].CorrelationId = correlationId
+		mapCorrelationIdToTuple[correlationId] = tuplesToCheck[idx]
+	}
+
+	// Check all tuples that weren't found in the cache.
+	batchCheckRequest := ClientBatchCheckRequest{
+		Checks: tuplesToCheck,
+	}
+	batchResp, err := fgaClient.BatchCheck(ctx).Body(batchCheckRequest).Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	if batchResp == nil || len(*batchResp.Result) == 0 {
+		return nil, errors.New("batch check response was nil or empty")
+	}
+
+	// Loop through the responses.
+	for correlationId, resp := range *batchResp.Result {
+		// This is the specific request tuple that the response corresponds to.
+		req, ok := mapCorrelationIdToTuple[correlationId]
+		if !ok {
+			continue
+		}
+		relationKey := req.Object + "#" + req.Relation + "@" + req.User
+		allowed := strconv.FormatBool(resp.GetAllowed())
+
+		// Append the result to our response message.
+		message = append(message, []byte(relationKey+"\t"+allowed+"\n")...)
+
+		// Cache the result.
+		cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
+		_, err := cacheBucket.Put(ctx, cacheKey, []byte(allowed))
+		if err != nil {
+			logger.With(errKey, err).ErrorContext(ctx, "failed to cache relation")
+		}
+	}
+
+	if len(message) < 1 {
+		// This shouldn't happen (*batchResp was checked for ==0 above with an
+		// early return, so there must have been at least one loop iteration), but
+		// it's a sanity test before applying the `len(message)-1` slice range.
+		return nil, errors.New("batch check response message empty")
+	}
+
+	// Trim the last newline and return.
+	return message[:len(message)-1], nil
+}
+
+// fgaExtractCheckRequests extracts the check requests from our binary message
+// payload format, which is a newline-delineated list of the format
+// `object#relation@user`.
+func fgaExtractCheckRequests(payload []byte) ([]ClientCheckRequest, error) {
+	var checkRequests []ClientCheckRequest
+
+	lines := bytes.Split(payload, []byte("\n"))
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+
+		checkRequest, err := fgaParseCheckRequest(line)
+		if err != nil {
+			return nil, err
+		}
+
+		logger.With(
+			"object", checkRequest.Object,
+			"relation", checkRequest.Relation,
+			"user", checkRequest.User,
+		).Debug("parsed check request")
+
+		checkRequests = append(checkRequests, *checkRequest)
+	}
+
+	return checkRequests, nil
+}
+
+// fgaParseCheckRequest parses a single check request from the format
+// `object#relation@user`.
+func fgaParseCheckRequest(line []byte) (*ClientCheckRequest, error) {
+	// Split the user from the object and relation.
+	var firstPart, userPart []byte
+	var found bool
+	if firstPart, userPart, found = bytes.Cut(line, []byte("@")); !found {
+		return nil, fmt.Errorf("invalid check request: %s", line)
+	}
+
+	// Split the object and relation.
+	var objectPart, relationPart []byte
+	if objectPart, relationPart, found = bytes.Cut(firstPart, []byte("#")); !found {
+		return nil, fmt.Errorf("invalid check request: %s", line)
+	}
+
+	// Create the check request.
+	checkRequest := &ClientCheckRequest{
+		User:     string(userPart),
+		Relation: string(relationPart),
+		Object:   string(objectPart),
+	}
+
+	return checkRequest, nil
+}

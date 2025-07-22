@@ -1,0 +1,104 @@
+# Copyright The Linux Foundation and each contributor to LFX.
+# SPDX-License-Identifier: MIT
+---
+# golangci-lint configuration
+
+run:
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+  skip-dirs:
+    - bin
+    - vendor
+  skip-files:
+    - ".*_test.go"  # Skip some test-specific lints
+
+output:
+  format: colored-line-number
+  print-issued-lines: true
+  print-linter-name: true
+
+linters-settings:
+  errcheck:
+    check-type-assertions: true
+    check-blank: true
+
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment  # Too strict for this project
+
+  gocyclo:
+    min-complexity: 15
+
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+
+  misspell:
+    locale: US
+
+  lll:
+    line-length: 120
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+    disabled-checks:
+      - unnamedResult
+      - hugeParam
+
+  staticcheck:
+    checks: ["all"]
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - typecheck
+    - unused
+    - goconst
+    - gocyclo
+    - gofmt
+    - goimports
+    - gosec
+    - gocritic
+    - misspell
+    - lll
+    - unconvert
+    - dupl
+    - prealloc
+    - exportloopref
+    - nolintlint
+  
+  disable:
+    - varnamelen  # Too strict for short variable names
+    - exhaustive  # Not needed for this project
+    - funlen      # Function length can vary
+
+issues:
+  exclude-rules:
+    # Exclude some lints from being reported on test files
+    - path: _test\.go
+      linters:
+        - gosec
+        - dupl
+        - goconst
+    
+    # Exclude dot imports in test files (common for OpenFGA SDK)
+    - path: _test\.go
+      text: "should not use dot imports"
+      linters:
+        - stylecheck
+    # Allow dot imports for OpenFGA SDK (recommended by the SDK)
+    - source: '\. "github\.com/openfga/go-sdk/client"'
+      linters:
+        - stylecheck
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
