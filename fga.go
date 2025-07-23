@@ -320,24 +320,24 @@ func (s FgaService) CheckRelationships(ctx context.Context, tuples []ClientCheck
 		// Encode relation using base32 without padding to conform to the allowed
 		// characters for NATS subjects.
 		cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
-		var entry jetstream.KeyValueEntry
-		entry, err = s.cacheBucket.Get(ctx, cacheKey)
-		if err == jetstream.ErrKeyNotFound {
+		entry, errCache := s.cacheBucket.Get(ctx, cacheKey)
+		if errCache == jetstream.ErrKeyNotFound {
 			// No cache hit; continue.
 			cacheMisses.Add(1)
 			tuplesToCheck = append(tuplesToCheck, tuple)
 			continue
 		}
-		if err != nil {
+		if errCache != nil {
 			// This is not expected (we would have exited early already on cache
 			// errors when grabbing the invalidation timestamp), but log the error
 			// and skip cache lookups for remaining items without breaking the
 			// request at this point.
-			logger.With(errKey, err).ErrorContext(ctx, "cache error; continuing")
+			logger.With(errKey, errCache).ErrorContext(ctx, "cache error; continuing")
 			// Add all remaining tuples to the check list.
 			tuplesToCheck = append(tuplesToCheck, tupleItems[i:]...)
 			break
 		}
+
 		// Cache entry was found. If the cache entry is older than the invalidation
 		// timestamp, skip it.
 		if lastInvalidation.After(entry.Created()) {

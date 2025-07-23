@@ -25,8 +25,8 @@ graph TB
     
     subgraph "Message Types"
         F[Access Checks]
-        G[Project Updates]
-        H[Project Deletions]
+        G@{ shape: processes, label: "Resource Updates" }
+        H@{ shape: processes, label: "Resource Deletions" }
     end
     
     F --> A
@@ -37,8 +37,8 @@ graph TB
 ### Components
 
 - **Access Check Handler**: Processes authorization queries with intelligent caching
-- **Project Update Handler**: Manages project permission synchronization
-- **Project Delete Handler**: Handles cleanup of project-related permissions
+- **Resource Handlers**: Manages resource permission synchronization: updates, deletes
+(e.g. `handler_project.go` for project permission data)
 - **Cache Layer**: JetStream KeyValue store for high-performance relationship caching
 
 ## 🛠️ Quick Start
@@ -68,7 +68,7 @@ graph TB
 3. **Set up OpenFGA store and authorization model**:
 
    ```bash
-   FGA_API=http://openfga.openfga.svc.cluster.local:8080/store
+   FGA_API=http://openfga.lfx.svc.cluster.local:8080/store
 
    # Create OpenFGA store
    curl -X POST $FGA_API \
@@ -87,7 +87,7 @@ graph TB
    docker run --rm -v ./lfx-access-model.fga:/lfx-access-model.fga openfga/cli model transform --file lfx-access-model.fga >lfx-access-model.fga.json
    
    # Upload authorization model
-   curl -X POST http://openfga.openfga.svc.cluster.local:8080/stores/{STORE_ID}/authorization-models \
+   curl -X POST http://openfga.lfx.svc.cluster.local:8080/stores/{STORE_ID}/authorization-models \
      -H "Content-Type: application/json" \
      -d @lfx-access-model.fga.json
    
@@ -101,7 +101,7 @@ graph TB
    go install github.com/openfga/cli/cmd/fga@latest
    
    # Create store and model
-   fga store create --name "lfx-fga-sync" --api-url http://openfga.openfga.svc.cluster.local:8080
+   fga store create --name "lfx-fga-sync" --api-url http://openfga.lfx.svc.cluster.local:8080
    fga model write --file lfx-access-model.fga --store-id {STORE_ID}
    ```
 
@@ -109,11 +109,10 @@ graph TB
 
    ```bash
    export NATS_URL="nats://lfx-platform-nats.lfx.svc.cluster.local:4222"
-   export FGA_API_URL="http://openfga.openfga.svc.cluster.local:8080"
+   export FGA_API_URL="http://openfga.lfx.svc.cluster.local:8080"
    export FGA_STORE_ID="01JZNYAVGM6F9N8CNK0MCPAHMT"  # Use your actual store ID
    export FGA_MODEL_ID="01JZNYHPGTB034VY61QCQAXJZ7"   # Use your actual model ID
    export CACHE_BUCKET="fga-sync-cache"
-   export LFX_ENVIRONMENT="dev"
    ```
 
 5. **Create the NATS KeyValue cache bucket**:
@@ -126,7 +125,7 @@ graph TB
    kubectl exec -n lfx deploy/nats-box -- nats kv add fga-sync-cache
    ```
 
-5. **Run the service**:
+6. **Run the service**:
 
    ```bash
    make run
@@ -145,7 +144,6 @@ docker run -d \
   -e FGA_STORE_ID=01JZNYAVGM6F9N8CNK0MCPAHMT \
   -e FGA_MODEL_ID=01JZNYHPGTB034VY61QCQAXJZ7 \
   -e CACHE_BUCKET=fga-sync-cache \
-  -e LFX_ENVIRONMENT=prod \
   -p 8080:8080 \
   linuxfoundation/lfx-v2-fga-sync:latest
 ```
@@ -172,17 +170,21 @@ helm install fga-sync ./charts/lfx-v2-fga-sync \
 | `FGA_STORE_ID` | OpenFGA store ID | - | Yes |
 | `FGA_MODEL_ID` | OpenFGA authorization model ID | - | Yes |
 | `CACHE_BUCKET` | JetStream KeyValue bucket name | `fga-sync-cache` | No |
-| `LFX_ENVIRONMENT` | Environment prefix for NATS subjects | `dev` | No |
 | `PORT` | HTTP server port | `8080` | No |
 | `DEBUG` | Enable debug logging | `false` | No |
 
 ### NATS Subjects
 
-The service subscribes to these NATS subjects (prefixed with `LFX_ENVIRONMENT`):
+The service subscribes to these NATS subjects:
 
-- `{env}.lfx.access_check.request` - Access permission checks
-- `{env}.lfx.update_access.project` - Project permission updates  
-- `{env}.lfx.delete_all_access.project` - Project deletion cleanup
+- `lfx.access_check.request` - Access permission checks
+- `lfx.update_access.project` - Project permission updates  
+- `lfx.delete_all_access.project` - Project permission deletion (project deleted)
+
+Follow this convention for other resources that have permissions in OpenFGA:
+
+`lfx.update_access.<resource_type>` - Resource permission updates
+`lfx.delete_all_access.<resource_type>` - Resource permission deletion (resource deleted)
 
 ## 📊 API Reference
 
@@ -208,27 +210,40 @@ Returns `200 OK` if the service is ready to handle requests (NATS connected).
 
 #### Access Check Request
 
-```
-project:123#admin@user:456
-project:789#viewer@user:456
+`lfx.access_check.request`
+
+Format: `object#relation@user`
+
+```text
+project:7cad5a8d-19d0-41a4-81a6-043453daf9ee#viewer@user:456
 ```
 
-#### Project Update Message
+#### Resource Update Message
+
+`lfx.update_access.<resource_type>`
+
+Format: this is dependent on the resource since each resource can have its own schema and relations.
+
+Below is an example of the project message schema.
 
 ```json
 {
-  "uid": "project-123",
+  "uid": "7cad5a8d-19d0-41a4-81a6-043453daf9ee",
   "public": true,
-  "parent_uid": "parent-project-456", 
+  "parent_uid": "7cad5a8d-19d0-41a4-81a6-043453daf9ef7cad5a8d-19d0-41a4-81a6-043453daf9ee", 
   "writers": ["user1", "user2"],
   "auditors": ["auditor1"]
 }
 ```
 
-#### Project Delete Message
+#### Resource Delete Message
 
-```
-project-123
+`lfx.delete_all_access.<resource_type>`
+
+Format: `<resource_uid>` i.e. the resource UID that was deleted so that all access on the resource can be cleaned up.
+
+```text
+7cad5a8d-19d0-41a4-81a6-043453daf9ee
 ```
 
 ## 🧪 Development
@@ -340,7 +355,7 @@ nats:
   url: "nats://lfx-platform-nats.lfx.svc.cluster.local:4222"
 
 fga:
-  apiUrl: "http://openfga.lfx.svc.cluster.local:8080"
+  apiUrl: "http://openfga.lopenfga.svc.cluster.local:8080"
 ```
 
 ### Production Considerations

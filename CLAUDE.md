@@ -17,7 +17,7 @@ FGA Sync is a high-performance Go microservice that synchronizes authorization d
 
 ### Message Flow
 
-1. NATS messages arrive on environment-prefixed subjects (e.g., `dev.lfx.access_check.request`)
+1. NATS messages arrive on subjects (e.g., `lfx.access_check.request`)
 2. Queue groups ensure load balancing across service instances
 3. Handlers process messages, interact with cache/OpenFGA, and send replies
 4. Cache invalidation occurs on project updates/deletions
@@ -59,38 +59,39 @@ make gosec         # Run security scanner
 
 - `NATS_URL`: NATS server connection URL (e.g., `nats://nats:4222`)
 - `FGA_API_URL`: OpenFGA API endpoint (e.g., `http://openfga:8080`)
+- `FGA_STORE_ID`: OpenFGA store ID
+- `FGA_MODEL_ID`: OpenFGA authorization model ID
 
 ### Optional Environment Variables
 
 - `CACHE_BUCKET`: JetStream KeyValue bucket name (default: `fga-sync-cache`)
-- `LFX_ENVIRONMENT`: Environment prefix for NATS subjects (default: `dev`)
 - `PORT`: HTTP server port (default: `8080`)
 - `DEBUG`: Enable debug logging (default: `false`)
 
 ## Message Formats
 
-### Access Check Request (`{env}.lfx.access_check.request`)
+### Access Check Request (`lfx.access_check.request`)
 
 ```
-project:123#admin@user:456
-project:789#viewer@user:456
+project:7cad5a8d-19d0-41a4-81a6-043453daf9ee#admin@user:456
+project:7cad5a8d-19d0-41a4-81a6-043453daf9ee#viewer@user:456
 ```
 
 Multiple relationship checks, one per line. Format: `object#relation@user`
 
-### Project Update Message (`{env}.lfx.update_access.project`)
+### Project Update Message (`lfx.update_access.project`)
 
 ```json
 {
-  "uid": "project-123",
+  "uid": "7cad5a8d-19d0-41a4-81a6-043453daf9ee",
   "public": true,
-  "parent_uid": "parent-project-456", 
+  "parent_uid": "7cad5a8d-19d0-41a4-81a6-043453daf9ef", 
   "writers": ["user1", "user2"],
   "auditors": ["auditor1"]
 }
 ```
 
-### Project Delete Message (`{env}.lfx.delete_all_access.project`)
+### Project Delete Message (`lfx.delete_all_access.project`)
 
 ```
 project-123
@@ -169,7 +170,8 @@ Each message type has a dedicated handler function:
 # Set environment variables
 export NATS_URL="nats://localhost:4222"
 export FGA_API_URL="http://localhost:8080"
-export LFX_ENVIRONMENT="dev"
+export FGA_STORE_ID="01JZNYAVGM6F9N8CNK0MCPAHMT"
+export FGA_MODEL_ID="01JZNYHPGTB034VY61QCQAXJZ7"
 
 # Run the service
 make run
@@ -181,7 +183,9 @@ make run
 # Deploy with Helm
 helm install fga-sync ./charts/lfx-v2-fga-sync \
   --set nats.url=nats://lfx-platform-nats.lfx.svc.cluster.local:4222 \
-  --set fga.apiUrl=http://openfga.lfx.svc.cluster.local:8080
+  --set fga.apiUrl=http://openfga.lfx.svc.cluster.local:8080 \
+  --set fga.storeId=01JZNYAVGM6F9N8CNK0MCPAHMT \
+  --set fga.modelId=01JZNYHPGTB034VY61QCQAXJZ7
 ```
 
 ## Troubleshooting

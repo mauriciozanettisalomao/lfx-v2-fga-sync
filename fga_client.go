@@ -1,3 +1,6 @@
+// Copyright The Linux Foundation and each contributor to LFX.
+// SPDX-License-Identifier: MIT
+
 package main
 
 import (
@@ -21,16 +24,26 @@ type FgaAdapter struct {
 }
 
 // BatchCheck executes a batch check request.
-func (c FgaAdapter) BatchCheck(ctx context.Context, request ClientBatchCheckRequest) (*openfga.BatchCheckResponse, error) {
+func (c FgaAdapter) BatchCheck(
+	ctx context.Context,
+	request ClientBatchCheckRequest,
+) (*openfga.BatchCheckResponse, error) {
 	return c.OpenFgaClient.BatchCheck(ctx).Body(request).Execute()
 }
 
 // Read executes a read request.
-func (c FgaAdapter) Read(ctx context.Context, req ClientReadRequest, options ClientReadOptions) (*ClientReadResponse, error) {
+func (c FgaAdapter) Read(
+	ctx context.Context,
+	req ClientReadRequest,
+	options ClientReadOptions,
+) (*ClientReadResponse, error) {
 	return c.OpenFgaClient.Read(ctx).Body(req).Options(options).Execute()
 }
 
 // Write executes a write request.
-func (c FgaAdapter) Write(ctx context.Context, req ClientWriteRequest) (*ClientWriteResponse, error) {
+func (c FgaAdapter) Write(
+	ctx context.Context,
+	req ClientWriteRequest,
+) (*ClientWriteResponse, error) {
 	return c.OpenFgaClient.Write(ctx).Body(req).Execute()
 }

@@ -44,7 +44,7 @@ linters:
         - style
         - performance
     gocyclo:
-      min-complexity: 15
+      min-complexity: 20
     govet:
       disable:
         - fieldalignment

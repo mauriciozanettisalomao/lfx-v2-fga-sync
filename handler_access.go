@@ -9,7 +9,7 @@ import (
 )
 
 // accessCheckHandler handles access check requests from the NATS server.
-func (s *HandlerService) accessCheckHandler(message INatsMsg) error {
+func (h *HandlerService) accessCheckHandler(message INatsMsg) error {
 	ctx := context.TODO()
 
 	var response []byte
@@ -18,7 +18,7 @@ func (s *HandlerService) accessCheckHandler(message INatsMsg) error {
 	logger.With("message", string(message.Data())).InfoContext(ctx, "handling access check request")
 
 	// Extract the check requests from the message payload.
-	checkRequests, err := s.fgaService.ExtractCheckRequests(message.Data())
+	checkRequests, err := h.fgaService.ExtractCheckRequests(message.Data())
 	if err != nil {
 		errText := "failed to extract check requests"
 		logger.With(errKey, err).WarnContext(ctx, errText)
@@ -47,7 +47,7 @@ func (s *HandlerService) accessCheckHandler(message INatsMsg) error {
 	}
 
 	logger.With("count", len(checkRequests)).DebugContext(ctx, "checking fga relationships")
-	response, err = s.fgaService.CheckRelationships(ctx, checkRequests)
+	response, err = h.fgaService.CheckRelationships(ctx, checkRequests)
 	if err != nil {
 		errText := "failed to check relationship"
 		logger.With(errKey, err).ErrorContext(ctx, errText)

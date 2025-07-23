@@ -1,3 +1,6 @@
+// Copyright The Linux Foundation and each contributor to LFX.
+// SPDX-License-Identifier: MIT
+
 package main
 
 import (
@@ -18,20 +21,33 @@ type MockFgaClient struct {
 }
 
 // BatchCheck implements the IFgaClient interface
-func (m *MockFgaClient) Read(ctx context.Context, req ClientReadRequest, options ClientReadOptions) (*ClientReadResponse, error) {
+func (m *MockFgaClient) Read(
+	ctx context.Context,
+	req ClientReadRequest,
+	options ClientReadOptions,
+) (*ClientReadResponse, error) {
 	args := m.Called(ctx, req, options)
+	//nolint:errcheck // the error is passed through to the caller
 	return args.Get(0).(*ClientReadResponse), args.Error(1)
 }
 
 // Write implements the IFgaClient interface
-func (m *MockFgaClient) Write(ctx context.Context, req ClientWriteRequest) (*ClientWriteResponse, error) {
+func (m *MockFgaClient) Write(
+	ctx context.Context,
+	req ClientWriteRequest,
+) (*ClientWriteResponse, error) {
 	args := m.Called(ctx, req)
+	//nolint:errcheck // the error is passed through to the caller
 	return args.Get(0).(*ClientWriteResponse), args.Error(1)
 }
 
 // BatchCheck implements the IFgaClient interface
-func (m *MockFgaClient) BatchCheck(ctx context.Context, request ClientBatchCheckRequest) (*openfga.BatchCheckResponse, error) {
+func (m *MockFgaClient) BatchCheck(
+	ctx context.Context,
+	request ClientBatchCheckRequest,
+) (*openfga.BatchCheckResponse, error) {
 	args := m.Called(ctx, request)
+	//nolint:errcheck // the error is passed through to the caller
 	return args.Get(0).(*openfga.BatchCheckResponse), args.Error(1)
 }
 
@@ -126,7 +142,7 @@ func (m *MockKeyValue) Put(ctx context.Context, key string, value []byte) (uint6
 }
 
 // PutString implements the jetstream.KeyValue interface
-func (m *MockKeyValue) PutString(ctx context.Context, key string, value string) (uint64, error) {
+func (m *MockKeyValue) PutString(ctx context.Context, key, value string) (uint64, error) {
 	return m.Put(ctx, key, []byte(value))
 }
 

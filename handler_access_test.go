@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linuxfoundation/lfx-v2-fga-sync/pkg/constants"
 	"github.com/nats-io/nats.go/jetstream"
 	openfga "github.com/openfga/go-sdk"
 	"github.com/stretchr/testify/assert"
@@ -30,8 +29,6 @@ func init() {
 		logger = slog.New(slog.NewTextHandler(os.Stdout, logOptions))
 		slog.SetDefault(logger)
 	}
-
-	lfxEnvironment = constants.LFXEnvironmentDev
 }
 
 // setupService creates a new ProjectsService with mocked external service APIs.

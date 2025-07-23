@@ -33,7 +33,6 @@ const (
 
 var (
 	logger          *slog.Logger
-	lfxEnvironment  constants.LFXEnvironment
 	httpServer      *http.Server
 	natsURL         string
 	natsConn        *nats.Conn
@@ -50,8 +49,6 @@ func init() {
 	if cacheBucketName == "" {
 		cacheBucketName = "fga-sync-cache"
 	}
-	lfxEnvironmentStr := os.Getenv("LFX_ENVIRONMENT")
-	lfxEnvironment = constants.ParseLFXEnvironment(lfxEnvironmentStr)
 }
 
 // main parses optional flags and starts the NATS subscribers.
@@ -249,43 +246,49 @@ func createHTTPHandlers() {
 
 // createQueueSubscriptions creates queue subscriptions for the NATS subjects.
 func createQueueSubscriptions(handlerService HandlerService) (err error) {
-	queue := fmt.Sprintf("%s%s", lfxEnvironment, constants.FgaSyncQueue)
+	queue := constants.FgaSyncQueue
 
-	subject := fmt.Sprintf("%s%s", lfxEnvironment, constants.AccessCheckSubject)
-	if _, err = natsConn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
-		err := handlerService.accessCheckHandler(&NatsMsg{msg})
-		if err != nil {
-			logger.With(errKey, err).Error("error handling access check request")
+	if _, err = natsConn.QueueSubscribe(constants.AccessCheckSubject, queue, func(msg *nats.Msg) {
+		errHandler := handlerService.accessCheckHandler(&NatsMsg{msg})
+		if errHandler != nil {
+			logger.With(errKey, errHandler).Error("error handling access check request")
 		}
 	}); err != nil {
-		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
+		logger.With(
+			errKey, err,
+			"subject", constants.AccessCheckSubject,
+		).Error("error subscribing to NATS subject")
 		return err
 	}
-	logger.With("subject", subject).Info("subscribed to NATS subject")
+	logger.With("subject", constants.AccessCheckSubject).Info("subscribed to NATS subject")
 
-	subject = fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectUpdateAccessSubject)
-	if _, err = natsConn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
-		err := handlerService.projectUpdateAccessHandler(&NatsMsg{msg})
-		if err != nil {
-			logger.With(errKey, err).Error("error handling project update access request")
+	if _, err = natsConn.QueueSubscribe(constants.ProjectUpdateAccessSubject, queue, func(msg *nats.Msg) {
+		errHandler := handlerService.projectUpdateAccessHandler(&NatsMsg{msg})
+		if errHandler != nil {
+			logger.With(errKey, errHandler).Error("error handling project update access request")
 		}
 	}); err != nil {
-		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
+		logger.With(
+			errKey, err,
+			"subject", constants.ProjectUpdateAccessSubject,
+		).Error("error subscribing to NATS subject")
 		return err
 	}
-	logger.With("subject", subject).Info("subscribed to NATS subject")
+	logger.With("subject", constants.ProjectUpdateAccessSubject).Info("subscribed to NATS subject")
 
-	subject = fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectDeleteAllAccessSubject)
-	if _, err = natsConn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
-		err := handlerService.projectDeleteAllAccessHandler(&NatsMsg{msg})
-		if err != nil {
-			logger.With(errKey, err).Error("error handling project delete all access request")
+	if _, err = natsConn.QueueSubscribe(constants.ProjectDeleteAllAccessSubject, queue, func(msg *nats.Msg) {
+		errHandler := handlerService.projectDeleteAllAccessHandler(&NatsMsg{msg})
+		if errHandler != nil {
+			logger.With(errKey, errHandler).Error("error handling project delete all access request")
 		}
 	}); err != nil {
-		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
+		logger.With(
+			errKey, err,
+			"subject", constants.ProjectDeleteAllAccessSubject,
+		).Error("error subscribing to NATS subject")
 		return err
 	}
-	logger.With("subject", subject).Info("subscribed to NATS subject")
+	logger.With("subject", constants.ProjectDeleteAllAccessSubject).Info("subscribed to NATS subject")
 
 	return nil
 }
