@@ -39,7 +39,6 @@ var (
 	natsConn        *nats.Conn
 	jetstreamConn   jetstream.JetStream
 	cacheBucketName string
-	cacheBucket     jetstream.KeyValue
 )
 
 func init() {
@@ -85,7 +84,8 @@ func main() {
 	slog.SetDefault(logger)
 
 	// Create an OpenFGA client.
-	if err := connectFga(); err != nil {
+	fgaClient, err := connectFga()
+	if err != nil {
 		logger.With(errKey, err).Error("error creating OpenFGA client")
 		os.Exit(1)
 	}
@@ -109,7 +109,6 @@ func main() {
 
 	// Create NATS connection.
 	gracefulCloseWG.Add(1)
-	var err error
 	natsConn, err = nats.Connect(
 		natsURL,
 		nats.DrainTimeout(gracefulShutdownSeconds*time.Second),
@@ -150,13 +149,20 @@ func main() {
 		logger.With(errKey, err).Error("error creating JetStream client")
 		return
 	}
-	cacheBucket, err = jetstreamConn.KeyValue(context.Background(), cacheBucketName)
+	cacheBucket, err := jetstreamConn.KeyValue(context.Background(), cacheBucketName)
 	if err != nil {
 		logger.With(errKey, err).Error("error binding to cache bucket")
 		return
 	}
 
-	if err = createQueueSubscriptions(); err != nil {
+	handlerService := HandlerService{
+		fgaService: FgaService{
+			client:      fgaClient,
+			cacheBucket: cacheBucket,
+		},
+	}
+
+	if err = createQueueSubscriptions(handlerService); err != nil {
 		logger.With(errKey, err).Error("error creating queue subscriptions")
 		return
 	}
@@ -242,25 +248,40 @@ func createHTTPHandlers() {
 }
 
 // createQueueSubscriptions creates queue subscriptions for the NATS subjects.
-func createQueueSubscriptions() (err error) {
+func createQueueSubscriptions(handlerService HandlerService) (err error) {
 	queue := fmt.Sprintf("%s%s", lfxEnvironment, constants.FgaSyncQueue)
 
 	subject := fmt.Sprintf("%s%s", lfxEnvironment, constants.AccessCheckSubject)
-	if _, err = natsConn.QueueSubscribe(subject, queue, accessCheckHandler); err != nil {
+	if _, err = natsConn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
+		err := handlerService.accessCheckHandler(&NatsMsg{msg})
+		if err != nil {
+			logger.With(errKey, err).Error("error handling access check request")
+		}
+	}); err != nil {
 		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
 		return err
 	}
 	logger.With("subject", subject).Info("subscribed to NATS subject")
 
 	subject = fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectUpdateAccessSubject)
-	if _, err = natsConn.QueueSubscribe(subject, queue, projectUpdateAccessHandler); err != nil {
+	if _, err = natsConn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
+		err := handlerService.projectUpdateAccessHandler(&NatsMsg{msg})
+		if err != nil {
+			logger.With(errKey, err).Error("error handling project update access request")
+		}
+	}); err != nil {
 		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
 		return err
 	}
 	logger.With("subject", subject).Info("subscribed to NATS subject")
 
 	subject = fmt.Sprintf("%s%s", lfxEnvironment, constants.ProjectDeleteAllAccessSubject)
-	if _, err = natsConn.QueueSubscribe(subject, queue, projectDeleteAllAccessHandler); err != nil {
+	if _, err = natsConn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
+		err := handlerService.projectDeleteAllAccessHandler(&NatsMsg{msg})
+		if err != nil {
+			logger.With(errKey, err).Error("error handling project delete all access request")
+		}
+	}); err != nil {
 		logger.With(errKey, err, "subject", subject).Error("error subscribing to NATS subject")
 		return err
 	}

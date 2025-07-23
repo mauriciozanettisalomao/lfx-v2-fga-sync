@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
+	openfga "github.com/openfga/go-sdk"
 	. "github.com/openfga/go-sdk/client"
+	"github.com/stretchr/testify/mock"
 )
 
 // TestCacheKeyEncoding tests the cache key encoding functionality
@@ -71,25 +72,287 @@ func TestCacheKeyEncoding(t *testing.T) {
 	}
 }
 
-// TestFgaCheckRelationships_EmptyInput tests the empty input case
-// Note: This test would work if the dependencies are available
-func TestFgaCheckRelationships_EmptyInput(t *testing.T) {
-	t.Skip("Skipping test that requires OpenFGA and NATS connections")
+// TestExtractCheckRequests tests the parsing of check requests
+func TestExtractCheckRequests(t *testing.T) {
+	tests := []struct {
+		name          string
+		payload       []byte
+		expectError   bool
+		expectedCount int
+		description   string
+	}{
+		{
+			name:          "single valid request",
+			payload:       []byte("project:123#admin@user:456"),
+			expectError:   false,
+			expectedCount: 1,
+			description:   "should parse single check request",
+		},
+		{
+			name:          "multiple valid requests",
+			payload:       []byte("project:123#admin@user:456\nproject:789#viewer@user:456"),
+			expectError:   false,
+			expectedCount: 2,
+			description:   "should parse multiple check requests separated by newlines",
+		},
+		{
+			name:          "empty lines ignored",
+			payload:       []byte("project:123#admin@user:456\n\nproject:789#viewer@user:456\n"),
+			expectError:   false,
+			expectedCount: 2,
+			description:   "should ignore empty lines",
+		},
+		{
+			name:          "invalid format - missing @",
+			payload:       []byte("project:123#adminuser:456"),
+			expectError:   true,
+			expectedCount: 0,
+			description:   "should error on missing @ separator",
+		},
+		{
+			name:          "invalid format - missing #",
+			payload:       []byte("project:123admin@user:456"),
+			expectError:   true,
+			expectedCount: 0,
+			description:   "should error on missing # separator",
+		},
+		{
+			name:          "empty payload",
+			payload:       []byte(""),
+			expectError:   false,
+			expectedCount: 0,
+			description:   "should handle empty payload",
+		},
+		{
+			name:          "only newlines",
+			payload:       []byte("\n\n\n"),
+			expectError:   false,
+			expectedCount: 0,
+			description:   "should handle payload with only newlines",
+		},
+	}
 
-	// This test would verify:
-	// ctx := context.Background()
-	// result, err := fgaCheckRelationships(ctx, []ClientCheckRequest{})
-	//
-	// if err != nil {
-	//     t.Errorf("unexpected error for empty input: %v", err)
-	// }
-	// if result != nil {
-	//     t.Errorf("expected nil result for empty input, got %v", result)
-	// }
+	fgaService := FgaService{
+		client: &MockFgaClient{},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			requests, err := fgaService.ExtractCheckRequests(tt.payload)
+
+			if tt.expectError && err == nil {
+				t.Errorf("expected error but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if len(requests) != tt.expectedCount {
+				t.Errorf("expected %d requests, got %d", tt.expectedCount, len(requests))
+			}
+
+			t.Logf("%s: %s", tt.name, tt.description)
+		})
+	}
 }
 
-// TestFgaSyncObjectTuples_RelationMapping tests the relation mapping logic
-func TestFgaSyncObjectTuples_RelationMapping(t *testing.T) {
+// TestReadObjectTuples tests the ReadObjectTuples function
+func TestReadObjectTuples(t *testing.T) {
+	tests := []struct {
+		name           string
+		object         string
+		mockSetup      func(*MockFgaClient)
+		expectedTuples []openfga.Tuple
+		expectError    bool
+		description    string
+	}{
+		{
+			name:   "single page of tuples",
+			object: "project:123",
+			mockSetup: func(m *MockFgaClient) {
+				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:123"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples: []openfga.Tuple{
+						{Key: openfga.TupleKey{User: "user:456", Relation: "admin", Object: "project:123"}},
+						{Key: openfga.TupleKey{User: "user:789", Relation: "viewer", Object: "project:123"}},
+					},
+					ContinuationToken: "",
+				}, nil).Once()
+			},
+			expectedTuples: []openfga.Tuple{
+				{Key: openfga.TupleKey{User: "user:456", Relation: "admin", Object: "project:123"}},
+				{Key: openfga.TupleKey{User: "user:789", Relation: "viewer", Object: "project:123"}},
+			},
+			expectError: false,
+			description: "should return all tuples from single page",
+		},
+		{
+			name:   "multiple pages with pagination",
+			object: "project:456",
+			mockSetup: func(m *MockFgaClient) {
+				// First page
+				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:456"
+				}), mock.MatchedBy(func(opts ClientReadOptions) bool {
+					return opts.ContinuationToken == nil
+				})).Return(&ClientReadResponse{
+					Tuples: []openfga.Tuple{
+						{Key: openfga.TupleKey{User: "user:111", Relation: "admin", Object: "project:456"}},
+						{Key: openfga.TupleKey{User: "user:222", Relation: "writer", Object: "project:456"}},
+					},
+					ContinuationToken: "page-2-token",
+				}, nil).Once()
+
+				// Second page
+				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:456"
+				}), mock.MatchedBy(func(opts ClientReadOptions) bool {
+					return opts.ContinuationToken != nil && *opts.ContinuationToken == "page-2-token"
+				})).Return(&ClientReadResponse{
+					Tuples: []openfga.Tuple{
+						{Key: openfga.TupleKey{User: "user:333", Relation: "viewer", Object: "project:456"}},
+						{Key: openfga.TupleKey{User: "group:devs", Relation: "writer", Object: "project:456"}},
+					},
+					ContinuationToken: "",
+				}, nil).Once()
+			},
+			expectedTuples: []openfga.Tuple{
+				{Key: openfga.TupleKey{User: "user:111", Relation: "admin", Object: "project:456"}},
+				{Key: openfga.TupleKey{User: "user:222", Relation: "writer", Object: "project:456"}},
+				{Key: openfga.TupleKey{User: "user:333", Relation: "viewer", Object: "project:456"}},
+				{Key: openfga.TupleKey{User: "group:devs", Relation: "writer", Object: "project:456"}},
+			},
+			expectError: false,
+			description: "should aggregate tuples from multiple pages",
+		},
+		{
+			name:   "empty result",
+			object: "project:789",
+			mockSetup: func(m *MockFgaClient) {
+				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:789"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples:            []openfga.Tuple{},
+					ContinuationToken: "",
+				}, nil).Once()
+			},
+			expectedTuples: []openfga.Tuple{},
+			expectError:    false,
+			description:    "should handle empty result",
+		},
+		{
+			name:   "error on first page",
+			object: "project:error",
+			mockSetup: func(m *MockFgaClient) {
+				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:error"
+				}), mock.Anything).Return((*ClientReadResponse)(nil), errors.New("fga read error")).Once()
+			},
+			expectedTuples: nil,
+			expectError:    true,
+			description:    "should return error on read failure",
+		},
+		{
+			name:   "error on subsequent page",
+			object: "project:partial",
+			mockSetup: func(m *MockFgaClient) {
+				// First page succeeds
+				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:partial"
+				}), mock.MatchedBy(func(opts ClientReadOptions) bool {
+					return opts.ContinuationToken == nil
+				})).Return(&ClientReadResponse{
+					Tuples: []openfga.Tuple{
+						{Key: openfga.TupleKey{User: "user:100", Relation: "admin", Object: "project:partial"}},
+					},
+					ContinuationToken: "error-token",
+				}, nil).Once()
+
+				// Second page fails
+				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:partial"
+				}), mock.MatchedBy(func(opts ClientReadOptions) bool {
+					return opts.ContinuationToken != nil && *opts.ContinuationToken == "error-token"
+				})).Return((*ClientReadResponse)(nil), errors.New("pagination error")).Once()
+			},
+			expectedTuples: nil,
+			expectError:    true,
+			description:    "should return error on pagination failure",
+		},
+		{
+			name:   "wildcard and group users",
+			object: "project:public",
+			mockSetup: func(m *MockFgaClient) {
+				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:public"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples: []openfga.Tuple{
+						{Key: openfga.TupleKey{User: "user:*", Relation: "viewer", Object: "project:public"}},
+						{Key: openfga.TupleKey{User: "group:admins", Relation: "admin", Object: "project:public"}},
+						{Key: openfga.TupleKey{User: "user:123", Relation: "writer", Object: "project:public"}},
+					},
+					ContinuationToken: "",
+				}, nil).Once()
+			},
+			expectedTuples: []openfga.Tuple{
+				{Key: openfga.TupleKey{User: "user:*", Relation: "viewer", Object: "project:public"}},
+				{Key: openfga.TupleKey{User: "group:admins", Relation: "admin", Object: "project:public"}},
+				{Key: openfga.TupleKey{User: "user:123", Relation: "writer", Object: "project:public"}},
+			},
+			expectError: false,
+			description: "should handle wildcard and group users",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock client and service
+			mockClient := new(MockFgaClient)
+			tt.mockSetup(mockClient)
+
+			fgaService := FgaService{
+				client: mockClient,
+			}
+
+			// Execute the function
+			ctx := context.Background()
+			tuples, err := fgaService.ReadObjectTuples(ctx, tt.object)
+
+			// Verify error expectations
+			if tt.expectError && err == nil {
+				t.Errorf("%s: expected error but got none", tt.description)
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("%s: unexpected error: %v", tt.description, err)
+			}
+
+			// Verify tuple results
+			if !tt.expectError {
+				if len(tuples) != len(tt.expectedTuples) {
+					t.Errorf("%s: expected %d tuples, got %d", tt.description, len(tt.expectedTuples), len(tuples))
+				}
+				for i, tuple := range tuples {
+					if i >= len(tt.expectedTuples) {
+						break
+					}
+					expected := tt.expectedTuples[i]
+					if tuple.Key.User != expected.Key.User ||
+						tuple.Key.Relation != expected.Key.Relation ||
+						tuple.Key.Object != expected.Key.Object {
+						t.Errorf("%s: tuple %d mismatch: got %+v, want %+v",
+							tt.description, i, tuple.Key, expected.Key)
+					}
+				}
+			}
+
+			// Verify all expectations were met
+			mockClient.AssertExpectations(t)
+		})
+	}
+}
+
+// TestSyncObjectTuples_RelationMapping tests the relation mapping logic
+func TestSyncObjectTuples_RelationMapping(t *testing.T) {
 	tests := []struct {
 		name          string
 		object        string
@@ -164,37 +427,6 @@ func TestFgaSyncObjectTuples_RelationMapping(t *testing.T) {
 					tt.description, tt.expectedCount, len(relationsMap))
 			}
 		})
-	}
-}
-
-// TestBatchCheckItemConversion tests the conversion of check requests to batch items
-func TestBatchCheckItemConversion(t *testing.T) {
-	checkRequests := []ClientCheckRequest{
-		{User: "user:123", Relation: "admin", Object: "project:456"},
-		{User: "group:devs", Relation: "writer", Object: "project:789"},
-		{User: "user:*", Relation: "viewer", Object: "project:public"},
-	}
-
-	// Simulate the conversion logic
-	tupleItems := make([]ClientBatchCheckItem, 0, len(checkRequests))
-	for _, tuple := range checkRequests {
-		tupleItems = append(tupleItems, ClientBatchCheckItem{
-			User:     tuple.User,
-			Relation: tuple.Relation,
-			Object:   tuple.Object,
-		})
-	}
-
-	if len(tupleItems) != len(checkRequests) {
-		t.Errorf("expected %d tuple items, got %d", len(checkRequests), len(tupleItems))
-	}
-
-	for i, item := range tupleItems {
-		if item.User != checkRequests[i].User ||
-			item.Relation != checkRequests[i].Relation ||
-			item.Object != checkRequests[i].Object {
-			t.Errorf("tuple item %d mismatch: got %+v, want %+v", i, item, checkRequests[i])
-		}
 	}
 }
 
@@ -280,111 +512,6 @@ func TestResponseMessageBuilding(t *testing.T) {
 	}
 }
 
-// MockKeyValue is a mock implementation of jetstream.KeyValue for testing
-type MockKeyValue struct {
-	data         map[string][]byte
-	createdTimes map[string]time.Time
-	returnError  error
-	notFoundKeys map[string]bool
-}
-
-func NewMockKeyValue() *MockKeyValue {
-	return &MockKeyValue{
-		data:         make(map[string][]byte),
-		createdTimes: make(map[string]time.Time),
-		notFoundKeys: make(map[string]bool),
-	}
-}
-
-func (m *MockKeyValue) Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error) {
-	if m.returnError != nil {
-		return nil, m.returnError
-	}
-	if m.notFoundKeys[key] {
-		return nil, jetstream.ErrKeyNotFound
-	}
-	if data, exists := m.data[key]; exists {
-		return &MockKeyValueEntry{
-			key:     key,
-			value:   data,
-			created: m.createdTimes[key],
-		}, nil
-	}
-	return nil, jetstream.ErrKeyNotFound
-}
-
-func (m *MockKeyValue) Put(ctx context.Context, key string, value []byte) (uint64, error) {
-	if m.returnError != nil {
-		return 0, m.returnError
-	}
-	m.data[key] = value
-	m.createdTimes[key] = time.Now()
-	return 1, nil
-}
-
-func (m *MockKeyValue) SetNotFound(key string) {
-	m.notFoundKeys[key] = true
-}
-
-func (m *MockKeyValue) SetError(err error) {
-	m.returnError = err
-}
-
-// Other required methods for the interface (stubbed)
-func (m *MockKeyValue) Create(ctx context.Context, key string, value []byte) (uint64, error) {
-	return 0, nil
-}
-func (m *MockKeyValue) Update(ctx context.Context, key string, value []byte, revision uint64) (uint64, error) {
-	return 0, nil
-}
-func (m *MockKeyValue) Delete(ctx context.Context, key string, opts ...jetstream.KVDeleteOpt) error {
-	return nil
-}
-func (m *MockKeyValue) Purge(ctx context.Context, key string, opts ...jetstream.KVDeleteOpt) error {
-	return nil
-}
-func (m *MockKeyValue) Watch(
-	ctx context.Context,
-	keys string,
-	opts ...jetstream.WatchOpt,
-) (jetstream.KeyWatcher, error) {
-	return nil, nil
-}
-func (m *MockKeyValue) WatchAll(ctx context.Context, opts ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
-	return nil, nil
-}
-func (m *MockKeyValue) Keys(ctx context.Context, opts ...jetstream.WatchOpt) ([]string, error) {
-	return nil, nil
-}
-func (m *MockKeyValue) History(
-	ctx context.Context,
-	key string,
-	opts ...jetstream.WatchOpt,
-) ([]jetstream.KeyValueEntry, error) {
-	return nil, nil
-}
-func (m *MockKeyValue) Bucket() string { return "test-bucket" }
-func (m *MockKeyValue) PurgeDeletes(ctx context.Context, opts ...jetstream.KVPurgeOpt) error {
-	return nil
-}
-func (m *MockKeyValue) Status(ctx context.Context) (jetstream.KeyValueStatus, error) { return nil, nil }
-
-// MockKeyValueEntry is a mock implementation of jetstream.KeyValueEntry
-type MockKeyValueEntry struct {
-	key      string
-	value    []byte
-	created  time.Time
-	revision uint64
-}
-
-func (m *MockKeyValueEntry) Bucket() string                  { return "test-bucket" }
-func (m *MockKeyValueEntry) Key() string                     { return m.key }
-func (m *MockKeyValueEntry) Value() []byte                   { return m.value }
-func (m *MockKeyValueEntry) Created() time.Time              { return m.created }
-func (m *MockKeyValueEntry) Revision() uint64                { return m.revision }
-func (m *MockKeyValueEntry) Delta() uint64                   { return 0 }
-func (m *MockKeyValueEntry) Operation() jetstream.KeyValueOp { return jetstream.KeyValuePut }
-
 // TestCacheInvalidationLogic tests the cache invalidation timestamp logic
 func TestCacheInvalidationLogic(t *testing.T) {
 	tests := []struct {
@@ -443,45 +570,95 @@ func TestCacheInvalidationLogic(t *testing.T) {
 	}
 }
 
-// BenchmarkCacheKeyEncoding benchmarks the cache key encoding
-func BenchmarkCacheKeyEncoding(b *testing.B) {
-	encoder := base32.StdEncoding.WithPadding(base32.NoPadding)
-	relationKey := "org:linux-foundation/project:kernel#maintainer@user:developer"
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = "rel." + encoder.EncodeToString([]byte(relationKey))
-	}
-}
-
-// TestErrorHandling tests various error scenarios
-func TestErrorHandling(t *testing.T) {
+// TestNewTupleKeySlice tests the NewTupleKeySlice helper function
+func TestNewTupleKeySlice(t *testing.T) {
 	tests := []struct {
-		name        string
-		scenario    string
-		shouldError bool
+		name    string
+		size    int
+		wantCap int
 	}{
 		{
-			name:        "nil context",
-			scenario:    "should handle nil context gracefully",
-			shouldError: true,
+			name:    "small slice",
+			size:    4,
+			wantCap: 4,
 		},
 		{
-			name:        "invalid cache key characters",
-			scenario:    "should handle invalid characters in cache keys",
-			shouldError: false,
+			name:    "zero size",
+			size:    0,
+			wantCap: 0,
 		},
 		{
-			name:        "extremely long relation keys",
-			scenario:    "should handle very long relation keys",
-			shouldError: false,
+			name:    "large slice",
+			size:    100,
+			wantCap: 100,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Logf("Test scenario: %s", tt.scenario)
-			// Note: Actual implementation would depend on the real function behavior
+			handlerService := setupService()
+			got := handlerService.fgaService.NewTupleKeySlice(tt.size)
+			if len(got) != 0 {
+				t.Errorf("expected empty slice, got length %d", len(got))
+			}
+			if cap(got) != tt.wantCap {
+				t.Errorf("expected capacity %d, got %d", tt.wantCap, cap(got))
+			}
+		})
+	}
+}
+
+// TestTupleKey tests the TupleKey helper function
+func TestTupleKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		user     string
+		relation string
+		object   string
+		want     ClientTupleKey
+	}{
+		{
+			name:     "standard tuple",
+			user:     "user:123",
+			relation: "admin",
+			object:   "project:456",
+			want: ClientTupleKey{
+				User:     "user:123",
+				Relation: "admin",
+				Object:   "project:456",
+			},
+		},
+		{
+			name:     "wildcard user",
+			user:     "user:*",
+			relation: "viewer",
+			object:   "project:public",
+			want: ClientTupleKey{
+				User:     "user:*",
+				Relation: "viewer",
+				Object:   "project:public",
+			},
+		},
+		{
+			name:     "group user",
+			user:     "group:developers",
+			relation: "writer",
+			object:   "project:123",
+			want: ClientTupleKey{
+				User:     "group:developers",
+				Relation: "writer",
+				Object:   "project:123",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handlerService := setupService()
+			got := handlerService.fgaService.TupleKey(tt.user, tt.relation, tt.object)
+			if got.User != tt.want.User || got.Relation != tt.want.Relation || got.Object != tt.want.Object {
+				t.Errorf("fgaTupleKey() = %+v, want %+v", got, tt.want)
+			}
 		})
 	}
 }

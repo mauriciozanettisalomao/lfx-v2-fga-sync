@@ -7,7 +7,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	openfga "github.com/openfga/go-sdk"
 	. "github.com/openfga/go-sdk/client"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
 // TestProjectUpdateAccessHandler tests the projectUpdateAccessHandler function
@@ -15,10 +18,11 @@ func TestProjectUpdateAccessHandler(t *testing.T) {
 	tests := []struct {
 		name           string
 		messageData    []byte
-		hasReply       bool
-		expectError    bool
-		description    string
-		expectedTuples []ClientTupleKey
+		replySubject   string
+		setupMocks     func(*HandlerService, *MockNatsMsg)
+		expectedError  bool
+		expectedReply  string
+		expectedCalled bool
 	}{
 		{
 			name: "valid project with all fields",
@@ -29,16 +33,30 @@ func TestProjectUpdateAccessHandler(t *testing.T) {
 				Writers:   []string{"user1", "user2"},
 				Auditors:  []string{"auditor1"},
 			}),
-			hasReply:    true,
-			expectError: false,
-			description: "should process valid project with all fields",
-			expectedTuples: []ClientTupleKey{
-				{User: "user:*", Relation: "viewer", Object: "project:test-project-123"},
-				{User: "project:parent-project-456", Relation: "parent", Object: "project:test-project-123"},
-				{User: "user:user1", Relation: "writer", Object: "project:test-project-123"},
-				{User: "user:user2", Relation: "writer", Object: "project:test-project-123"},
-				{User: "user:auditor1", Relation: "auditor", Object: "project:test-project-123"},
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				msg.On("Respond", []byte("OK")).Return(nil).Once()
+
+				// Mock the Read operation to return existing tuples
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:test-project-123"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples:            []openfga.Tuple{},
+					ContinuationToken: "",
+				}, nil).Once()
+
+				// Mock the Write operation
+				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
+					// Verify the write request contains expected tuples
+					return len(req.Writes) == 5 && len(req.Deletes) == 0
+				})).Return(&ClientWriteResponse{}, nil).Once()
+
+				// Mock cache operations
+				service.fgaService.cacheBucket.(*MockKeyValue).On("Put", mock.Anything, "inv", mock.Anything).Return(uint64(1), nil).Once()
+				service.fgaService.cacheBucket.(*MockKeyValue).On("PutString", mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil).Maybe()
 			},
+			expectedError:  false,
+			expectedCalled: true,
 		},
 		{
 			name: "private project without parent",
@@ -48,12 +66,29 @@ func TestProjectUpdateAccessHandler(t *testing.T) {
 				Writers:  []string{"writer1"},
 				Auditors: []string{},
 			}),
-			hasReply:    false,
-			expectError: false,
-			description: "should process private project without parent",
-			expectedTuples: []ClientTupleKey{
-				{User: "user:writer1", Relation: "writer", Object: "project:private-project"},
+			replySubject: "",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// No reply expected when replySubject is empty
+
+				// Mock the Read operation
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:private-project"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples:            []openfga.Tuple{},
+					ContinuationToken: "",
+				}, nil).Once()
+
+				// Mock the Write operation for 1 writer
+				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
+					return len(req.Writes) == 1 && len(req.Deletes) == 0
+				})).Return(&ClientWriteResponse{}, nil).Once()
+
+				// Mock cache operations
+				service.fgaService.cacheBucket.(*MockKeyValue).On("Put", mock.Anything, "inv", mock.Anything).Return(uint64(1), nil).Once()
+				service.fgaService.cacheBucket.(*MockKeyValue).On("PutString", mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil).Maybe()
 			},
+			expectedError:  false,
+			expectedCalled: false,
 		},
 		{
 			name: "public project with no users",
@@ -61,36 +96,59 @@ func TestProjectUpdateAccessHandler(t *testing.T) {
 				UID:    "public-empty",
 				Public: true,
 			}),
-			hasReply:    true,
-			expectError: false,
-			description: "should process public project with no users",
-			expectedTuples: []ClientTupleKey{
-				{User: "user:*", Relation: "viewer", Object: "project:public-empty"},
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				msg.On("Respond", []byte("OK")).Return(nil).Once()
+
+				// Mock the Read operation
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:public-empty"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples:            []openfga.Tuple{},
+					ContinuationToken: "",
+				}, nil).Once()
+
+				// Mock the Write operation for public viewer
+				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
+					return len(req.Writes) == 1 && len(req.Deletes) == 0 &&
+						req.Writes[0].User == "user:*" && req.Writes[0].Relation == "viewer"
+				})).Return(&ClientWriteResponse{}, nil).Once()
+
+				// Mock cache operations
+				service.fgaService.cacheBucket.(*MockKeyValue).On("Put", mock.Anything, "inv", mock.Anything).Return(uint64(1), nil).Once()
 			},
+			expectedError:  false,
+			expectedCalled: true,
 		},
 		{
-			name:           "invalid JSON",
-			messageData:    []byte("invalid-json"),
-			hasReply:       true,
-			expectError:    true,
-			description:    "should handle invalid JSON gracefully",
-			expectedTuples: nil,
+			name:         "invalid JSON",
+			messageData:  []byte("invalid-json"),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// No mocks needed - should fail at JSON parsing
+			},
+			expectedError:  true,
+			expectedCalled: false,
 		},
 		{
-			name:           "empty project UID",
-			messageData:    mustJSON(projectStub{}),
-			hasReply:       true,
-			expectError:    true,
-			description:    "should handle empty project UID",
-			expectedTuples: nil,
+			name:         "empty project UID",
+			messageData:  mustJSON(projectStub{}),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// No mocks needed - should fail at UID validation
+			},
+			expectedError:  true,
+			expectedCalled: false,
 		},
 		{
-			name:           "empty message",
-			messageData:    []byte(""),
-			hasReply:       true,
-			expectError:    true,
-			description:    "should handle empty message",
-			expectedTuples: nil,
+			name:         "empty message",
+			messageData:  []byte(""),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// No mocks needed - should fail at JSON parsing
+			},
+			expectedError:  true,
+			expectedCalled: false,
 		},
 		{
 			name: "project with empty arrays",
@@ -99,20 +157,68 @@ func TestProjectUpdateAccessHandler(t *testing.T) {
 				Writers:  []string{},
 				Auditors: []string{},
 			}),
-			hasReply:       false,
-			expectError:    false,
-			description:    "should handle project with empty arrays",
-			expectedTuples: []ClientTupleKey{},
+			replySubject: "",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// Mock the Read operation - no existing tuples
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:empty-arrays"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples:            []openfga.Tuple{},
+					ContinuationToken: "",
+				}, nil).Once()
+				// No Write operation expected since there are no tuples to write
+			},
+			expectedError:  false,
+			expectedCalled: false,
+		},
+		{
+			name: "respond error handling",
+			messageData: mustJSON(projectStub{
+				UID:    "respond-error",
+				Public: true,
+			}),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				msg.On("Respond", []byte("OK")).Return(assert.AnError).Once()
+
+				// Mock the Read and Write operations
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.Anything, mock.Anything).Return(&ClientReadResponse{
+					Tuples:            []openfga.Tuple{},
+					ContinuationToken: "",
+				}, nil).Once()
+				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.Anything).Return(&ClientWriteResponse{}, nil).Once()
+				service.fgaService.cacheBucket.(*MockKeyValue).On("Put", mock.Anything, "inv", mock.Anything).Return(uint64(1), nil).Once()
+			},
+			expectedError:  true,
+			expectedCalled: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Logf("Test case: %s - %s", tt.name, tt.description)
+			msg := CreateMockNatsMsg(tt.messageData)
+			msg.reply = tt.replySubject
 
-			// Note: Actual handler testing would require mocking fgaSyncObjectTuples
-			// This test documents expected behavior
-			// TODO: Actually test the handler. Update this test.
+			handlerService := setupService()
+			tt.setupMocks(handlerService, msg)
+
+			// Test that the function doesn't panic
+			assert.NotPanics(t, func() {
+				err := handlerService.projectUpdateAccessHandler(msg)
+				if tt.expectedError {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
+
+			// Verify mock expectations
+			if tt.expectedCalled {
+				msg.AssertExpectations(t)
+			} else {
+				// Ensure Respond was never called
+				msg.AssertNotCalled(t, "Respond")
+			}
 		})
 	}
 }
@@ -120,337 +226,178 @@ func TestProjectUpdateAccessHandler(t *testing.T) {
 // TestProjectDeleteAllAccessHandler tests the projectDeleteAllAccessHandler function
 func TestProjectDeleteAllAccessHandler(t *testing.T) {
 	tests := []struct {
-		name        string
-		messageData []byte
-		hasReply    bool
-		expectError bool
-		description string
-	}{
-		{
-			name:        "valid project UID",
-			messageData: []byte("test-project-123"),
-			hasReply:    true,
-			expectError: false,
-			description: "should delete all tuples for valid project",
-		},
-		{
-			name:        "empty payload",
-			messageData: []byte(""),
-			hasReply:    true,
-			expectError: true,
-			description: "should handle empty payload",
-		},
-		{
-			name:        "JSON object payload",
-			messageData: []byte(`{"uid": "test"}`),
-			hasReply:    true,
-			expectError: true,
-			description: "should reject JSON object payload",
-		},
-		{
-			name:        "JSON array payload",
-			messageData: []byte(`["test"]`),
-			hasReply:    true,
-			expectError: true,
-			description: "should reject JSON array payload",
-		},
-		{
-			name:        "quoted string payload",
-			messageData: []byte(`"test-project"`),
-			hasReply:    true,
-			expectError: true,
-			description: "should reject quoted string payload",
-		},
-		{
-			name:        "project UID without reply",
-			messageData: []byte("project-no-reply"),
-			hasReply:    false,
-			expectError: false,
-			description: "should process without sending reply",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Logf("Test case: %s - %s", tt.name, tt.description)
-
-			// Note: Actual handler testing would require mocking fgaSyncObjectTuples
-			// This test documents expected behavior
-			// TODO: Actually test the handler. Update this test.
-		})
-	}
-}
-
-// TestProjectStubStruct tests the projectStub struct marshaling/unmarshaling
-func TestProjectStubStruct(t *testing.T) {
-	tests := []struct {
-		name     string
-		stub     projectStub
-		wantJSON string
-	}{
-		{
-			name: "full struct",
-			stub: projectStub{
-				UID:       "test-123",
-				Public:    true,
-				ParentUID: "parent-456",
-				Writers:   []string{"w1", "w2"},
-				Auditors:  []string{"a1"},
-			},
-			wantJSON: `{"uid":"test-123","public":true,"parent_uid":"parent-456","writers":["w1","w2"],"auditors":["a1"]}`,
-		},
-		{
-			name: "minimal struct",
-			stub: projectStub{
-				UID: "minimal",
-			},
-			wantJSON: `{"uid":"minimal","public":false,"parent_uid":"","writers":null,"auditors":null}`,
-		},
-		{
-			name: "empty arrays",
-			stub: projectStub{
-				UID:      "empty-arrays",
-				Writers:  []string{},
-				Auditors: []string{},
-			},
-			wantJSON: `{"uid":"empty-arrays","public":false,"parent_uid":"","writers":[],"auditors":[]}`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Test marshaling
-			got, err := json.Marshal(tt.stub)
-			if err != nil {
-				t.Errorf("failed to marshal: %v", err)
-			}
-			if string(got) != tt.wantJSON {
-				t.Errorf("marshal mismatch:\ngot:  %s\nwant: %s", got, tt.wantJSON)
-			}
-
-			// Test unmarshaling
-			var unmarshaled projectStub
-			err = json.Unmarshal([]byte(tt.wantJSON), &unmarshaled)
-			if err != nil {
-				t.Errorf("failed to unmarshal: %v", err)
-			}
-
-			// Compare fields
-			if unmarshaled.UID != tt.stub.UID {
-				t.Errorf("UID mismatch: got %s, want %s", unmarshaled.UID, tt.stub.UID)
-			}
-			if unmarshaled.Public != tt.stub.Public {
-				t.Errorf("Public mismatch: got %v, want %v", unmarshaled.Public, tt.stub.Public)
-			}
-			if unmarshaled.ParentUID != tt.stub.ParentUID {
-				t.Errorf("ParentUID mismatch: got %s, want %s", unmarshaled.ParentUID, tt.stub.ParentUID)
-			}
-		})
-	}
-}
-
-// TestFgaTupleKey tests the fgaTupleKey helper function
-func TestFgaTupleKey(t *testing.T) {
-	tests := []struct {
-		name     string
-		user     string
-		relation string
-		object   string
-		want     ClientTupleKey
-	}{
-		{
-			name:     "standard tuple",
-			user:     "user:123",
-			relation: "admin",
-			object:   "project:456",
-			want: ClientTupleKey{
-				User:     "user:123",
-				Relation: "admin",
-				Object:   "project:456",
-			},
-		},
-		{
-			name:     "wildcard user",
-			user:     "user:*",
-			relation: "viewer",
-			object:   "project:public",
-			want: ClientTupleKey{
-				User:     "user:*",
-				Relation: "viewer",
-				Object:   "project:public",
-			},
-		},
-		{
-			name:     "group user",
-			user:     "group:developers",
-			relation: "writer",
-			object:   "project:123",
-			want: ClientTupleKey{
-				User:     "group:developers",
-				Relation: "writer",
-				Object:   "project:123",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := fgaTupleKey(tt.user, tt.relation, tt.object)
-			if got.User != tt.want.User || got.Relation != tt.want.Relation || got.Object != tt.want.Object {
-				t.Errorf("fgaTupleKey() = %+v, want %+v", got, tt.want)
-			}
-		})
-	}
-}
-
-// TestFgaNewTupleKeySlice tests the fgaNewTupleKeySlice helper function
-func TestFgaNewTupleKeySlice(t *testing.T) {
-	tests := []struct {
-		name    string
-		size    int
-		wantCap int
-	}{
-		{
-			name:    "small slice",
-			size:    4,
-			wantCap: 4,
-		},
-		{
-			name:    "zero size",
-			size:    0,
-			wantCap: 0,
-		},
-		{
-			name:    "large slice",
-			size:    100,
-			wantCap: 100,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := fgaNewTupleKeySlice(tt.size)
-			if len(got) != 0 {
-				t.Errorf("expected empty slice, got length %d", len(got))
-			}
-			if cap(got) != tt.wantCap {
-				t.Errorf("expected capacity %d, got %d", tt.wantCap, cap(got))
-			}
-		})
-	}
-}
-
-// TestTupleGeneration tests the tuple generation logic
-func TestTupleGeneration(t *testing.T) {
-	tests := []struct {
 		name           string
-		project        projectStub
-		expectedCount  int
-		expectedTuples []ClientTupleKey
+		messageData    []byte
+		replySubject   string
+		setupMocks     func(*HandlerService, *MockNatsMsg)
+		expectedError  bool
+		expectedReply  string
+		expectedCalled bool
 	}{
 		{
-			name: "complete project",
-			project: projectStub{
-				UID:       "test",
-				Public:    true,
-				ParentUID: "parent",
-				Writers:   []string{"w1", "w2"},
-				Auditors:  []string{"a1", "a2"},
+			name:         "valid project UID",
+			messageData:  []byte("test-project-123"),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				msg.On("Respond", []byte("OK")).Return(nil).Once()
+
+				// Mock the Read operation to return some existing tuples
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:test-project-123"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples: []openfga.Tuple{
+						{Key: openfga.TupleKey{User: "user:456", Relation: "admin", Object: "project:test-project-123"}},
+						{Key: openfga.TupleKey{User: "user:789", Relation: "viewer", Object: "project:test-project-123"}},
+					},
+					ContinuationToken: "",
+				}, nil).Once()
+
+				// Mock the Write operation to delete all tuples
+				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
+					// Should have no writes and 2 deletes
+					return len(req.Writes) == 0 && len(req.Deletes) == 2
+				})).Return(&ClientWriteResponse{}, nil).Once()
+
+				// Mock cache invalidation
+				service.fgaService.cacheBucket.(*MockKeyValue).On("Put", mock.Anything, "inv", mock.Anything).Return(uint64(1), nil).Once()
 			},
-			expectedCount: 6, // 1 public + 1 parent + 2 writers + 2 auditors
+			expectedError:  false,
+			expectedCalled: true,
 		},
 		{
-			name: "minimal project",
-			project: projectStub{
-				UID: "test",
+			name:         "empty payload",
+			messageData:  []byte(""),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// No mocks needed - should fail at validation
 			},
-			expectedCount: 0,
+			expectedError:  true,
+			expectedCalled: false,
 		},
 		{
-			name: "public only",
-			project: projectStub{
-				UID:    "test",
-				Public: true,
+			name:         "JSON object payload",
+			messageData:  []byte(`{"uid": "test"}`),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// No mocks needed - should fail at validation
 			},
-			expectedCount: 1,
+			expectedError:  true,
+			expectedCalled: false,
 		},
 		{
-			name: "with parent only",
-			project: projectStub{
-				UID:       "test",
-				ParentUID: "parent",
+			name:         "JSON array payload",
+			messageData:  []byte(`["test"]`),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// No mocks needed - should fail at validation
 			},
-			expectedCount: 1,
+			expectedError:  true,
+			expectedCalled: false,
+		},
+		{
+			name:         "quoted string payload",
+			messageData:  []byte(`"test-project"`),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// No mocks needed - should fail at validation
+			},
+			expectedError:  true,
+			expectedCalled: false,
+		},
+		{
+			name:         "project UID without reply",
+			messageData:  []byte("project-no-reply"),
+			replySubject: "",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// No reply expected when replySubject is empty
+
+				// Mock the Read operation
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:project-no-reply"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples:            []openfga.Tuple{},
+					ContinuationToken: "",
+				}, nil).Once()
+				// No Write operation expected since there are no tuples to delete
+			},
+			expectedError:  false,
+			expectedCalled: false,
+		},
+		{
+			name:         "project with existing tuples and no reply",
+			messageData:  []byte("project-with-tuples"),
+			replySubject: "",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// Mock the Read operation to return existing tuples
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "project:project-with-tuples"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples: []openfga.Tuple{
+						{Key: openfga.TupleKey{User: "user:100", Relation: "writer", Object: "project:project-with-tuples"}},
+					},
+					ContinuationToken: "",
+				}, nil).Once()
+
+				// Mock the Write operation to delete the tuple
+				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
+					return len(req.Writes) == 0 && len(req.Deletes) == 1
+				})).Return(&ClientWriteResponse{}, nil).Once()
+
+				// Mock cache invalidation
+				service.fgaService.cacheBucket.(*MockKeyValue).On("Put", mock.Anything, "inv", mock.Anything).Return(uint64(1), nil).Once()
+			},
+			expectedError:  false,
+			expectedCalled: false,
+		},
+		{
+			name:         "respond error handling",
+			messageData:  []byte("error-project"),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				msg.On("Respond", []byte("OK")).Return(assert.AnError).Once()
+
+				// Mock the Read and Write operations
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.Anything, mock.Anything).Return(&ClientReadResponse{
+					Tuples:            []openfga.Tuple{},
+					ContinuationToken: "",
+				}, nil).Once()
+			},
+			expectedError:  true,
+			expectedCalled: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Simulate the tuple generation logic from the handler
-			tuples := fgaNewTupleKeySlice(4)
-			object := "project:" + tt.project.UID
+			msg := CreateMockNatsMsg(tt.messageData)
+			msg.reply = tt.replySubject
 
-			if tt.project.Public {
-				tuples = append(tuples, fgaTupleKey("user:*", "viewer", object))
-			}
+			handlerService := setupService()
+			tt.setupMocks(handlerService, msg)
 
-			if tt.project.ParentUID != "" {
-				tuples = append(tuples, fgaTupleKey("project:"+tt.project.ParentUID, "parent", object))
-			}
+			// Test that the function doesn't panic
+			assert.NotPanics(t, func() {
+				err := handlerService.projectDeleteAllAccessHandler(msg)
+				if tt.expectedError {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			})
 
-			for _, principal := range tt.project.Writers {
-				tuples = append(tuples, fgaTupleKey("user:"+principal, "writer", object))
-			}
-
-			for _, principal := range tt.project.Auditors {
-				tuples = append(tuples, fgaTupleKey("user:"+principal, "auditor", object))
-			}
-
-			if len(tuples) != tt.expectedCount {
-				t.Errorf("expected %d tuples, got %d", tt.expectedCount, len(tuples))
+			// Verify mock expectations
+			if tt.expectedCalled {
+				msg.AssertExpectations(t)
+			} else {
+				// Ensure Respond was never called
+				msg.AssertNotCalled(t, "Respond")
 			}
 		})
-	}
-}
-
-// BenchmarkProjectUpdateHandler benchmarks the project update handler
-func BenchmarkProjectUpdateHandler(b *testing.B) {
-	project := projectStub{
-		UID:       "bench-project",
-		Public:    true,
-		ParentUID: "parent",
-		Writers:   []string{"w1", "w2", "w3", "w4", "w5"},
-		Auditors:  []string{"a1", "a2", "a3"},
-	}
-
-	data, _ := json.Marshal(project) //nolint:errcheck // Benchmark test - error handling not needed
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		// Simulate parsing and tuple generation
-		var p projectStub
-		_ = json.Unmarshal(data, &p) //nolint:errcheck // Benchmark test - error handling not needed
-
-		tuples := fgaNewTupleKeySlice(10)
-		object := "project:" + p.UID
-
-		if p.Public {
-			tuples = append(tuples, fgaTupleKey("user:*", "viewer", object))
-		}
-		if p.ParentUID != "" {
-			tuples = append(tuples, fgaTupleKey("project:"+p.ParentUID, "parent", object))
-		}
-		for _, principal := range p.Writers {
-			tuples = append(tuples, fgaTupleKey("user:"+principal, "writer", object))
-		}
-		for _, principal := range p.Auditors {
-			tuples = append(tuples, fgaTupleKey("user:"+principal, "auditor", object))
-		}
 	}
 }
 
 // Helper function to create JSON or panic
-func mustJSON(v interface{}) []byte {
+func mustJSON(v any) []byte {
 	data, err := json.Marshal(v)
 	if err != nil {
 		panic(err)

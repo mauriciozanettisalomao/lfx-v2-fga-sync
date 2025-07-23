@@ -26,7 +26,6 @@ import (
 // pollution which is the recommended way of using this SDK.
 
 var (
-	fgaClient       *OpenFgaClient
 	cacheHits       *expvar.Int
 	cacheStaleHits  *expvar.Int
 	cacheMisses     *expvar.Int
@@ -39,28 +38,44 @@ func init() {
 	cacheMisses = expvar.NewInt("cache_misses")
 }
 
+// INatsKeyValue is a NATS KV interface needed for the [ProjectsService].
+type INatsKeyValue interface {
+	Get(ctx context.Context, key string) (jetstream.KeyValueEntry, error)
+	Put(context.Context, string, []byte) (uint64, error)
+	PutString(context.Context, string, string) (uint64, error)
+}
+
+// FgaService is a service for OpenFGA client operations used in this service.
+type FgaService struct {
+	client      IFgaClient
+	cacheBucket INatsKeyValue
+}
+
 // connectFga initializes the global shared fgaClient connection. This demo
 // does not use or support authentication.
-func connectFga() error {
+func connectFga() (IFgaClient, error) {
 	var err error
-	fgaClient, err = NewSdkClient(&ClientConfiguration{
+	fgaClient, err := NewSdkClient(&ClientConfiguration{
 		ApiUrl:               os.Getenv("FGA_API_URL"),
 		StoreId:              os.Getenv("FGA_STORE_ID"),
 		AuthorizationModelId: os.Getenv("FGA_MODEL_ID"),
 	})
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return FgaAdapter{OpenFgaClient: *fgaClient}, nil
 }
 
-// fgaTupleKeySlice abstracts the creation of a ClientTupleKey slice for our
+// NewTupleKeySlice abstracts the creation of a ClientTupleKey slice for our
 // handler functions.
-func fgaNewTupleKeySlice(size int) []ClientTupleKey {
+func (s FgaService) NewTupleKeySlice(size int) []ClientTupleKey {
 	// Preallocate our slice to avoid extra allocations.
 	slice := make([]ClientTupleKey, 0, size)
 	return slice
 }
 
-// fgaTupleKey abstracts the creation of a ClientTupleKey for our handler functions.
-func fgaTupleKey(user, relation, object string) ClientTupleKey {
+// TupleKey abstracts the creation of a ClientTupleKey for our handler functions.
+func (s FgaService) TupleKey(user, relation, object string) ClientTupleKey {
 	return ClientTupleKey{
 		User:     user,
 		Relation: relation,
@@ -68,16 +83,16 @@ func fgaTupleKey(user, relation, object string) ClientTupleKey {
 	}
 }
 
-// fgaReadObjectTuples is a pagination helper to fetch all direct relationships (_no_
+// ReadObjectTuples is a pagination helper to fetch all direct relationships (_no_
 // transitive evaluations) defined against a given object.
-func fgaReadObjectTuples(ctx context.Context, object string) ([]openfga.Tuple, error) {
+func (s FgaService) ReadObjectTuples(ctx context.Context, object string) ([]openfga.Tuple, error) {
 	req := ClientReadRequest{
 		Object: openfga.PtrString(object),
 	}
 	options := ClientReadOptions{}
 	var tuples []openfga.Tuple
 	for {
-		resp, err := fgaClient.Read(ctx).Body(req).Options(options).Execute()
+		resp, err := s.client.Read(ctx, req, options)
 		if err != nil {
 			return nil, err
 		}
@@ -91,7 +106,7 @@ func fgaReadObjectTuples(ctx context.Context, object string) ([]openfga.Tuple, e
 	return tuples, nil
 }
 
-func getRelationsMap(object string, relations []ClientTupleKey) (map[string]ClientTupleKey, error) {
+func (s FgaService) getRelationsMap(object string, relations []ClientTupleKey) (map[string]ClientTupleKey, error) {
 	// Convert the passed relationships into a map.
 	relationsMap := make(map[string]ClientTupleKey)
 	for _, relation := range relations {
@@ -113,7 +128,7 @@ func getRelationsMap(object string, relations []ClientTupleKey) (map[string]Clie
 	return relationsMap, nil
 }
 
-func fgaSyncObjectTuples(
+func (s FgaService) SyncObjectTuples(
 	ctx context.Context,
 	object string,
 	relations []ClientTupleKey,
@@ -122,12 +137,12 @@ func fgaSyncObjectTuples(
 	deletes []ClientTupleKeyWithoutCondition,
 	err error,
 ) {
-	relationsMap, err := getRelationsMap(object, relations)
+	relationsMap, err := s.getRelationsMap(object, relations)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	tuples, err := fgaReadObjectTuples(ctx, object)
+	tuples, err := s.ReadObjectTuples(ctx, object)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -197,7 +212,7 @@ func fgaSyncObjectTuples(
 				// access relations. This happens asynchronously so we are not checking
 				// for errors or logging anything.
 				//nolint:errcheck // This happens asynchronously so we are not checking for errors.
-				_, _ = cacheBucket.PutString(timeoutCtx, cacheKey, "true")
+				_, _ = s.cacheBucket.PutString(timeoutCtx, cacheKey, "true")
 			}(cacheKey)
 		}
 	}
@@ -212,14 +227,14 @@ func fgaSyncObjectTuples(
 		Deletes: deletes,
 	}
 
-	_, err = fgaClient.Write(ctx).Body(req).Execute()
+	_, err = s.client.Write(ctx, req)
 	if err != nil {
 		return writes, deletes, err
 	}
 
 	// Invalidate caches. Any value will work, since it is the native timestamp
 	// of the record that is checked, not its value.
-	_, err = cacheBucket.Put(ctx, "inv", []byte("1"))
+	_, err = s.cacheBucket.Put(ctx, "inv", []byte("1"))
 	if err != nil {
 		logger.With(errKey, err).ErrorContext(ctx, "failed to write cache invalidation marker")
 	}
@@ -227,9 +242,9 @@ func fgaSyncObjectTuples(
 	return writes, deletes, nil
 }
 
-func getLastCacheInvalidation(ctx context.Context) (time.Time, error) {
+func (s FgaService) getLastCacheInvalidation(ctx context.Context) (time.Time, error) {
 	var lastInvalidation time.Time
-	entry, err := cacheBucket.Get(ctx, "inv")
+	entry, err := s.cacheBucket.Get(ctx, "inv")
 	switch {
 	case err == jetstream.ErrKeyNotFound:
 		// No invalidation in the TTL of the cache; all found cache entries are
@@ -243,7 +258,7 @@ func getLastCacheInvalidation(ctx context.Context) (time.Time, error) {
 	return lastInvalidation, nil
 }
 
-func appendToMessage(
+func (s FgaService) appendToMessage(
 	message []byte,
 	result map[string]openfga.BatchCheckSingleResult,
 	mapCorrelationIDToTuple map[string]ClientBatchCheckItem,
@@ -263,7 +278,7 @@ func appendToMessage(
 
 		// Cache the result.
 		cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
-		_, err := cacheBucket.Put(ctx, cacheKey, []byte(allowed))
+		_, err := s.cacheBucket.Put(ctx, cacheKey, []byte(allowed))
 		if err != nil {
 			logger.With(errKey, err).ErrorContext(ctx, "failed to cache relation")
 		}
@@ -272,9 +287,9 @@ func appendToMessage(
 	return message
 }
 
-// fgaCheckRelationships uses OpenFGA to determine multiple relationships in
+// CheckRelationships uses OpenFGA to determine multiple relationships in
 // bulk for any relationships not found in the cache.
-func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]byte, error) {
+func (s FgaService) CheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]byte, error) {
 	if len(tuples) == 0 {
 		return nil, nil
 	}
@@ -284,7 +299,7 @@ func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]
 	message := make([]byte, 0, 80*len(tuples))
 
 	// Get the most recent cache invalidation.
-	lastInvalidation, err := getLastCacheInvalidation(ctx)
+	lastInvalidation, err := s.getLastCacheInvalidation(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +321,7 @@ func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]
 		// characters for NATS subjects.
 		cacheKey := "rel." + cacheKeyEncoder.EncodeToString([]byte(relationKey))
 		var entry jetstream.KeyValueEntry
-		entry, err = cacheBucket.Get(ctx, cacheKey)
+		entry, err = s.cacheBucket.Get(ctx, cacheKey)
 		if err == jetstream.ErrKeyNotFound {
 			// No cache hit; continue.
 			cacheMisses.Add(1)
@@ -360,17 +375,17 @@ func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]
 	batchCheckRequest := ClientBatchCheckRequest{
 		Checks: tuplesToCheck,
 	}
-	batchResp, err := fgaClient.BatchCheck(ctx).Body(batchCheckRequest).Execute()
+	batchResp, err := s.client.BatchCheck(ctx, batchCheckRequest)
 	if err != nil {
 		return nil, err
 	}
 
-	if batchResp == nil || len(*batchResp.Result) == 0 {
+	if batchResp == nil || batchResp.Result == nil || len(*batchResp.Result) == 0 {
 		return nil, errors.New("batch check response was nil or empty")
 	}
 
 	// Loop through the responses.
-	message = appendToMessage(message, *batchResp.Result, mapCorrelationIDToTuple, ctx)
+	message = s.appendToMessage(message, *batchResp.Result, mapCorrelationIDToTuple, ctx)
 
 	if len(message) < 1 {
 		// This shouldn't happen (*batchResp was checked for ==0 above with an
@@ -383,10 +398,10 @@ func fgaCheckRelationships(ctx context.Context, tuples []ClientCheckRequest) ([]
 	return message[:len(message)-1], nil
 }
 
-// fgaExtractCheckRequests extracts the check requests from our binary message
+// ExtractCheckRequests extracts the check requests from our binary message
 // payload format, which is a newline-delineated list of the format
 // `object#relation@user`.
-func fgaExtractCheckRequests(payload []byte) ([]ClientCheckRequest, error) {
+func (s FgaService) ExtractCheckRequests(payload []byte) ([]ClientCheckRequest, error) {
 	checkRequests := make([]ClientCheckRequest, 0)
 
 	lines := bytes.Split(payload, []byte("\n"))
@@ -395,7 +410,7 @@ func fgaExtractCheckRequests(payload []byte) ([]ClientCheckRequest, error) {
 			continue
 		}
 
-		checkRequest, err := fgaParseCheckRequest(line)
+		checkRequest, err := s.parseCheckRequest(line)
 		if err != nil {
 			return nil, err
 		}
@@ -412,9 +427,9 @@ func fgaExtractCheckRequests(payload []byte) ([]ClientCheckRequest, error) {
 	return checkRequests, nil
 }
 
-// fgaParseCheckRequest parses a single check request from the format
+// parseCheckRequest parses a single check request from the format
 // `object#relation@user`.
-func fgaParseCheckRequest(line []byte) (*ClientCheckRequest, error) {
+func (s FgaService) parseCheckRequest(line []byte) (*ClientCheckRequest, error) {
 	// Split the user from the object and relation.
 	var firstPart, userPart []byte
 	var found bool

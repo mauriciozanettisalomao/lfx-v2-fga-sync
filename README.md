@@ -2,7 +2,7 @@
 
 ![Build Status](https://github.com/linuxfoundation/lfx-v2-fga-sync/workflows/FGA%20Sync%20Build/badge.svg)
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
-![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)
+![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go)
 
 A high-performance microservice that synchronizes authorization data between NATS messaging and OpenFGA (Fine-Grained Authorization), providing cached relationship checks and real-time access control updates for the LFX Platform v2.
 
@@ -142,6 +142,8 @@ make docker-build
 docker run -d \
   -e NATS_URL=nats://nats:4222 \
   -e FGA_API_URL=http://openfga:8080 \
+  -e FGA_STORE_ID=01JZNYAVGM6F9N8CNK0MCPAHMT \
+  -e FGA_MODEL_ID=01JZNYHPGTB034VY61QCQAXJZ7 \
   -e CACHE_BUCKET=fga-sync-cache \
   -e LFX_ENVIRONMENT=prod \
   -p 8080:8080 \
@@ -154,7 +156,9 @@ docker run -d \
 # Deploy using Helm
 helm install fga-sync ./charts/lfx-v2-fga-sync \
   --set nats.url=nats://lfx-platform-nats.lfx.svc.cluster.local:4222 \
-  --set fga.apiUrl=http://openfga.lfx.svc.cluster.local:8080
+  --set fga.apiUrl=http://openfga.lfx.svc.cluster.local:8080 \
+  --set fga.storeId=01JZNYAVGM6F9N8CNK0MCPAHMT \
+  --set fga.modelId=01JZNYHPGTB034VY61QCQAXJZ7
 ```
 
 ## 🔧 Configuration
@@ -165,6 +169,8 @@ helm install fga-sync ./charts/lfx-v2-fga-sync \
 |----------|-------------|---------|----------|
 | `NATS_URL` | NATS server connection URL | `nats://nats:4222` | Yes |
 | `FGA_API_URL` | OpenFGA API endpoint | - | Yes |
+| `FGA_STORE_ID` | OpenFGA store ID | - | Yes |
+| `FGA_MODEL_ID` | OpenFGA authorization model ID | - | Yes |
 | `CACHE_BUCKET` | JetStream KeyValue bucket name | `fga-sync-cache` | No |
 | `LFX_ENVIRONMENT` | Environment prefix for NATS subjects | `dev` | No |
 | `PORT` | HTTP server port | `8080` | No |
