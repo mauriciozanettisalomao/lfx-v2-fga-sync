@@ -1,0 +1,92 @@
+{
+  "version": "0.2",
+  "ignorePaths": [
+    "bin/",
+    "coverage.out",
+    "coverage.html",
+    ".claude",
+    "vendor/",
+    "node_modules/"
+  ],
+  "words": [
+    "golangci",
+    "openfga",
+    "jetstream",
+    "nats",
+    "unittests",
+    "gosec",
+    "sarif",
+    "SARIF",
+    "hadolint",
+    "buildx",
+    "Buildx",
+    "aquasecurity",
+    "linuxfoundation",
+    "autobuild",
+    "errcheck",
+    "govet",
+    "gocyclo",
+    "goconst",
+    "gocritic",
+    "staticcheck",
+    "gosimple",
+    "ineffassign",
+    "typecheck",
+    "gofmt",
+    "goimports",
+    "unconvert",
+    "dupl",
+    "prealloc",
+    "exportloopref",
+    "nolintlint",
+    "varnamelen",
+    "funlen",
+    "stylecheck",
+    "markdownlint",
+    "Markdownlint",
+    "chainguard",
+    "Chainguard",
+    "GOARCH",
+    "trimpath",
+    "ldflags",
+    "nonroot",
+    "devs",
+    "nolint",
+    "unmarshaling",
+    "unmarshaled",
+    "livez",
+    "readyz",
+    "adminuser",
+    "securecodewarrior",
+    "codecov",
+    "fieldalignment",
+    "copyloopvar",
+    "Expvar",
+    "expvar",
+    "01JZNYHPGTB034VY61QCQAXJZ7",
+    "01JZNYAVGM6F9N8CNK0MCPAHMT",
+    "stretchr"
+  ],
+  "overrides": [
+    {
+      "filename": "**/*.go",
+      "words": [
+        "fga",
+        "sync",
+        "lfx",
+        "ctx",
+        "uid",
+        "uuid",
+        "json",
+        "yaml",
+        "yml"
+      ]
+    },
+    {
+      "filename": "**/*.yml",
+      "words": [
+        "codecov"
+      ]
+    }
+  ]
+}
