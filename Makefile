@@ -6,6 +6,12 @@ APP_NAME := fga-sync
 
 # Docker image name
 IMAGE_NAME := lfx-v2-fga-sync
+IMAGE_TAG := 0.1.0
+
+# Helm variables
+HELM_CHART_PATH=./charts/lfx-v2-fga-sync
+HELM_RELEASE_NAME=fga-sync
+HELM_NAMESPACE=lfx
 
 # Go build variables
 GOCMD := go
@@ -101,13 +107,31 @@ run: build
 .PHONY: docker-build
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t $(IMAGE_NAME):latest .
+	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .
 
 # Push Docker image
 .PHONY: docker-push
 docker-push:
 	@echo "Pushing Docker image..."
-	docker push $(IMAGE_NAME):latest
+	docker push $(IMAGE_NAME):$(IMAGE_TAG)
+
+# Install Helm chart
+helm-install:
+	@echo "==> Installing Helm chart..."
+	helm upgrade --force --install $(HELM_RELEASE_NAME) $(HELM_CHART_PATH) --namespace $(HELM_NAMESPACE)
+	@echo "==> Helm chart installed: $(HELM_RELEASE_NAME)"
+
+# Print templates for Helm chart
+helm-templates:
+	@echo "==> Printing templates for Helm chart..."
+	helm template $(HELM_RELEASE_NAME) $(HELM_CHART_PATH) --namespace $(HELM_NAMESPACE)
+	@echo "==> Templates printed for Helm chart: $(HELM_RELEASE_NAME)"
+
+# Uninstall Helm chart
+helm-uninstall:
+	@echo "==> Uninstalling Helm chart..."
+	helm uninstall $(HELM_RELEASE_NAME) --namespace $(HELM_NAMESPACE)
+	@echo "==> Helm chart uninstalled: $(HELM_RELEASE_NAME)"
 
 # Build for multiple platforms
 .PHONY: build-all
@@ -145,6 +169,9 @@ help:
 	@echo "  dev            - Build with debug symbols"
 	@echo "  docker-build   - Build Docker image"
 	@echo "  docker-push    - Push Docker image"
+	@echo "  helm-install   - Install Helm chart"
+	@echo "  helm-templates - Print Helm chart templates"
+	@echo "  helm-uninstall - Uninstall Helm chart"
 	@echo "  fmt            - Format code"
 	@echo "  help           - Show this help message"
 	@echo "  install        - Install the binary"
