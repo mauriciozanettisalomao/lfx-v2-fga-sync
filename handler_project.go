@@ -21,7 +21,7 @@ type projectStub struct {
 
 // projectUpdateAccessHandler handles project access control updates.
 func (h *HandlerService) projectUpdateAccessHandler(message INatsMsg) error {
-	ctx := context.TODO()
+	ctx := context.Background()
 
 	logger.With("message", string(message.Data())).InfoContext(ctx, "handling project access control update")
 
@@ -92,7 +92,7 @@ func (h *HandlerService) projectUpdateAccessHandler(message INatsMsg) error {
 
 // projectDeleteAllAccessHandler handles project access control deletions.
 func (h *HandlerService) projectDeleteAllAccessHandler(message INatsMsg) error {
-	ctx := context.TODO()
+	ctx := context.Background()
 
 	logger.With("message", string(message.Data())).InfoContext(ctx, "handling project access control delete all")
 
