@@ -68,7 +68,8 @@
     "stretchr",
     "pipefail",
     "slsa",
-    "sigstore"
+    "sigstore",
+    "nindent"
   ],
   "overrides": [
     {

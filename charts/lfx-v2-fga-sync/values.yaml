@@ -1,0 +1,68 @@
+# Copyright The Linux Foundation and each contributor to LFX.
+# SPDX-License-Identifier: MIT
+---
+
+# image is the configuration for the container image
+image:
+  # repository is the container image repository
+  repository: ghcr.io/linuxfoundation/lfx-v2-fga-sync/lfx-v2-fga-sync
+  # tag is the container image tag (defaults to appVersion if not specified)
+  tag: ""
+  # pullPolicy is the image pull policy
+  pullPolicy: "IfNotPresent"
+
+# nats is the configuration for the NATS server
+nats:
+  # url is the URL of the NATS server
+  url: nats://lfx-platform-nats.lfx.svc.cluster.local:4222
+
+  # cacheFgaKvBucket is the configuration for the KV bucket for storing FGA cache
+  cacheFgaKvBucket:
+    # creation is a boolean to determine if the KV bucket should be created via the helm chart.
+    # set it to false if you want to use an existing KV bucket.
+    creation: true
+    # keep is a boolean to determine if the KV bucket should be preserved during helm uninstall
+    # set it to false if you want the bucket to be deleted when the chart is uninstalled
+    keep: true
+    # name is the name of the KV bucket for storing FGA cache
+    name: fga-sync-cache
+    # history is the number of history entries to keep for the KV bucket
+    history: 20
+    # storage is the storage type for the KV bucket
+    storage: file
+    # maxValueSize is the maximum size of a value in the KV bucket
+    maxValueSize: 10485760 # 10MB
+    # maxBytes is the maximum number of bytes in the KV bucket
+    maxBytes: 1073741824 # 1GB
+    # compression is a boolean to determine if the KV bucket should be compressed
+    compression: true
+
+# fga is the configuration for the OpenFGA server
+# These values come from the lfx-platform helm chart repo:
+# https://github.com/linuxfoundation/lfx-v2-helm/blob/main/docs/openfga.md
+fga:
+  # apiUrl is the URL of the OpenFGA API server
+  apiUrl: http://lfx-platform-openfga.lfx.svc.cluster.local:8080
+  # storeId is the ID of the OpenFGA store
+  storeId: 01K1GTJZW163H839J3YZHD8ZRY
+  # modelId is the ID of the OpenFGA model
+  modelId: 01K1H4TFHDSBCZVZ5EP6HHDWE6
+
+# application is the configuration for the application
+application:
+  # debug is a boolean to determine if the application should run in debug mode
+  debug: false
+  # useCache is a boolean to determine if the application should use the cache
+  # Only turn it off if you are developing locally and are writing to the OpenFGA store
+  # outside of this service (e.g. granting certain access to a test user manually)
+  useCache: true
+  # replicas is the number of pod replicas
+  replicas: 1
+  # resources is the resource configuration for the pods
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "100m"
+    limits:
+      memory: "128Mi"
+      cpu: "500m"
