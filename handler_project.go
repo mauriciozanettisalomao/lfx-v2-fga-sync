@@ -11,6 +11,7 @@ import (
 )
 
 // TODO: update this payload schema to come from the project service
+// Ticket https://linuxfoundation.atlassian.net/browse/LFXV2-147
 type projectStub struct {
 	UID       string   `json:"uid"`
 	Public    bool     `json:"public"`

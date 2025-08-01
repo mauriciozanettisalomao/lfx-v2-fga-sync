@@ -316,6 +316,12 @@ func (s FgaService) CheckRelationships(ctx context.Context, tuples []ClientCheck
 
 	// Loop through the requested tuples to check for cache hits.
 	for i, tuple := range tupleItems {
+		// If the cache is disabled, all tuples are added to the check list.
+		if !useCache {
+			tuplesToCheck = append(tuplesToCheck, tuple)
+			continue
+		}
+
 		relationKey := tuple.Object + "#" + tuple.Relation + "@" + tuple.User
 		// Encode relation using base32 without padding to conform to the allowed
 		// characters for NATS subjects.
@@ -341,10 +347,22 @@ func (s FgaService) CheckRelationships(ctx context.Context, tuples []ClientCheck
 		// Cache entry was found. If the cache entry is older than the invalidation
 		// timestamp, skip it.
 		if lastInvalidation.After(entry.Created()) {
+			logger.With(
+				"relation_key", relationKey,
+				"last_invalidation", lastInvalidation,
+				"entry_created", entry.Created(),
+				"entry_value", string(entry.Value()),
+			).DebugContext(ctx, "cache stale hit")
 			cacheStaleHits.Add(1)
 			tuplesToCheck = append(tuplesToCheck, tupleItems[i])
 			continue
 		}
+		logger.With(
+			"relation_key", relationKey,
+			"last_invalidation", lastInvalidation,
+			"entry_created", entry.Created(),
+			"entry_value", string(entry.Value()),
+		).DebugContext(ctx, "cache hit")
 		cacheHits.Add(1)
 		// Append the cached value to our response message.
 		message = append(message, []byte(fmt.Sprintf("%s\t%s\n", relationKey, string(entry.Value())))...)

@@ -170,8 +170,13 @@ helm install fga-sync ./charts/lfx-v2-fga-sync \
 | `FGA_STORE_ID` | OpenFGA store ID | - | Yes |
 | `FGA_MODEL_ID` | OpenFGA authorization model ID | - | Yes |
 | `CACHE_BUCKET` | JetStream KeyValue bucket name | `fga-sync-cache` | No |
+| `USE_CACHE` | Whether to try to use cache for access checks | `false` | No |
 | `PORT` | HTTP server port | `8080` | No |
 | `DEBUG` | Enable debug logging | `false` | No |
+
+Note: if you are developing locally and are writing to the OpenFGA store outside of this service
+(e.g. granting certain access to a test user manually) then you should set `USE_CACHE=false`,
+because otherwise access checks will use the cached access tuples even though they are out of date.
 
 ### NATS Subjects
 
