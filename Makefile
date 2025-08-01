@@ -1,16 +1,19 @@
 # Copyright The Linux Foundation and each contributor to LFX.
 # SPDX-License-Identifier: MIT
 
-# Application name
-APP_NAME := fga-sync
+# Application variables
+APP_NAME := lfx-v2-fga-sync
+APP_VERSION := 0.1.0
 
-# Docker image name
-IMAGE_NAME := lfx-v2-fga-sync
-IMAGE_TAG := 0.1.0
+# Docker variables
+DOCKER_REGISTRY := linuxfoundation
+DOCKER_IMAGE := $(DOCKER_REGISTRY)/$(APP_NAME)
+DOCKER_TAG := $(APP_VERSION)
+
 
 # Helm variables
 HELM_CHART_PATH=./charts/lfx-v2-fga-sync
-HELM_RELEASE_NAME=fga-sync
+HELM_RELEASE_NAME=lfx-v2-fga-sync
 HELM_NAMESPACE=lfx
 
 # Go build variables
@@ -107,13 +110,13 @@ run: build
 .PHONY: docker-build
 docker-build:
 	@echo "Building Docker image..."
-	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .
+	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
 
 # Push Docker image
 .PHONY: docker-push
 docker-push:
 	@echo "Pushing Docker image..."
-	docker push $(IMAGE_NAME):$(IMAGE_TAG)
+	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
 
 # Install Helm chart
 helm-install:
