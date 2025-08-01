@@ -45,10 +45,15 @@ graph TB
 
 ### Prerequisites
 
-- Go 1.23 or later
-- NATS Server with JetStream enabled
-- OpenFGA server
+- Go 1.23+
+- Kubernetes 1.19+
+- Helm 3.2.0+
 - Docker (optional)
+
+Dependencies you need but should get from [lfx-v2-helm](https://github.com/linuxfoundation/lfx-v2-helm/blob/main/charts/lfx-platform/README.md):
+
+- NATS Server with JetStream enabled
+- OpenFGA Server
 
 ### Local Development
 
@@ -62,67 +67,47 @@ graph TB
 2. **Install dependencies**:
 
    ```bash
+   # Installs Go dependencies
    make deps
    ```
 
+   IMPORTANT: Install the lfx-platform Helm chart to get all of the dependencies running in a Kubernetes cluster.
+   Follow the instructions from [lfx-v2-helm](https://github.com/linuxfoundation/lfx-v2-helm/blob/main/charts/lfx-platform/README.md).
+   It is expected that you have the chart installed for the rest of the steps.
+
 3. **Set up OpenFGA store and authorization model**:
 
-   ```bash
-   FGA_API=http://openfga.lfx.svc.cluster.local:8080/store
+    You should already have the OpenFGA store and authorization model configured if you are running the lfx-platform
+    helm chart. Read more about the use of OpenFGA and ensuring that you have it configured:
+    <https://github.com/linuxfoundation/lfx-v2-helm/blob/main/docs/openfga.md>
 
-   # Create OpenFGA store
-   curl -X POST $FGA_API \
-     -H "Content-Type: application/json" \
-     -d '{"name": "lfx_core"}'
-   
-   STORE_ID=$(curl -s "${FGA_API}/stores" | jq -r '.stores[] | select(.name="lfx_core") | .id')
-   
-   # Convert .fga model to JSON format (choose one method):
-   
-   # Method 1: Using OpenFGA CLI (requires installation)
-   go install github.com/openfga/cli/cmd/fga@latest
-   fga model transform --file lfx-access-model.fga > lfx-access-model.fga.json
-   
-   # Method 2: Using Docker (no installation required)
-   docker run --rm -v ./lfx-access-model.fga:/lfx-access-model.fga openfga/cli model transform --file lfx-access-model.fga >lfx-access-model.fga.json
-   
-   # Upload authorization model
-   curl -X POST http://openfga.lfx.svc.cluster.local:8080/stores/{STORE_ID}/authorization-models \
-     -H "Content-Type: application/json" \
-     -d @lfx-access-model.fga.json
-   
-   # Note the authorization_model_id from the response, e.g., "01JZNYHPGTB034VY61QCQAXJZ7"
-   ```
-
-   Alternatively, using the OpenFGA CLI:
-
-   ```bash
-   # Install OpenFGA CLI
-   go install github.com/openfga/cli/cmd/fga@latest
-   
-   # Create store and model
-   fga store create --name "lfx-fga-sync" --api-url http://openfga.lfx.svc.cluster.local:8080
-   fga model write --file lfx-access-model.fga --store-id {STORE_ID}
-   ```
+    If you are running your own instance of OpenFGA locally, you need to create a store and then an authorization model
+    with the same content from
+    <https://github.com/linuxfoundation/lfx-v2-helm/blob/main/charts/lfx-platform/templates/openfga/model.yaml>.
+    The authorization model expected by this service is maintained there.
 
 4. **Set environment variables**:
 
    ```bash
+   # This assumes you have the lfx-platform chart running
+   # from https://github.com/linuxfoundation/lfx-v2-helm/tree/main
    export NATS_URL="nats://lfx-platform-nats.lfx.svc.cluster.local:4222"
-   export FGA_API_URL="http://openfga.lfx.svc.cluster.local:8080"
-   export FGA_STORE_ID="01JZNYAVGM6F9N8CNK0MCPAHMT"  # Use your actual store ID
-   export FGA_MODEL_ID="01JZNYHPGTB034VY61QCQAXJZ7"   # Use your actual model ID
+   export FGA_API_URL="http://lfx-platform-openfga.lfx.svc.cluster.local:8080"
+   export FGA_STORE_ID="01K1GTJZW163H839J3YZHD8ZRY"  # Use your actual store ID if you aren't using the lfx-platform chart
+   export FGA_MODEL_ID="01K1H4TFHDSBCZVZ5EP6HHDWE6"   # Use your actual model ID if you aren't using the lfx-platform chart
    export CACHE_BUCKET="fga-sync-cache"
+   export USE_CACHE=true
+   export DEBUG=false
    ```
 
 5. **Create the NATS KeyValue cache bucket**:
 
    ```bash
    # Using NATS CLI (if available)
-   nats kv add fga-sync-cache
+   nats kv add fga-sync-cache --history=20 --storage=file --max-value-size=10485760 --max-bucket-size=1073741824
 
    # Or using kubectl if running in Kubernetes
-   kubectl exec -n lfx deploy/nats-box -- nats kv add fga-sync-cache
+   kubectl exec -n lfx deploy/nats-box -- nats kv add fga-sync-cache --history=20 --storage=file --max-value-size=10485760 --max-bucket-size=1073741824
    ```
 
 6. **Run the service**:
@@ -134,15 +119,18 @@ graph TB
 ### Docker Deployment
 
 ```bash
-# Build the image
+# Build the image (replace the version as needed)
+docker build -t linuxfoundation/lfx-v2-fga-sync:0.1.0 .
+
+# Or use Make
 make docker-build
 
-# Run with docker-compose
+# Run the container
 docker run -d \
-  -e NATS_URL=nats://nats:4222 \
-  -e FGA_API_URL=http://openfga:8080 \
-  -e FGA_STORE_ID=01JZNYAVGM6F9N8CNK0MCPAHMT \
-  -e FGA_MODEL_ID=01JZNYHPGTB034VY61QCQAXJZ7 \
+  -e NATS_URL=nats://lfx-platform-nats.lfx.svc.cluster.local:4222 \
+  -e FGA_API_URL=http://lfx-platform-openfga.lfx.svc.cluster.local:8080 \
+  -e FGA_STORE_ID=01K1GTJZW163H839J3YZHD8ZRY \
+  -e FGA_MODEL_ID=01K1H4TFHDSBCZVZ5EP6HHDWE6 \
   -e CACHE_BUCKET=fga-sync-cache \
   -p 8080:8080 \
   linuxfoundation/lfx-v2-fga-sync:latest
@@ -152,11 +140,14 @@ docker run -d \
 
 ```bash
 # Deploy using Helm
-helm install fga-sync ./charts/lfx-v2-fga-sync \
+helm install lfx-v2-fga-sync ./charts/lfx-v2-fga-sync \
   --set nats.url=nats://lfx-platform-nats.lfx.svc.cluster.local:4222 \
-  --set fga.apiUrl=http://openfga.lfx.svc.cluster.local:8080 \
-  --set fga.storeId=01JZNYAVGM6F9N8CNK0MCPAHMT \
-  --set fga.modelId=01JZNYHPGTB034VY61QCQAXJZ7
+  --set fga.apiUrl=http://lfx-platform-openfga.lfx.svc.cluster.local:8080 \
+  --set fga.storeId=01K1GTJZW163H839J3YZHD8ZRY \
+  --set fga.modelId=01K1H4TFHDSBCZVZ5EP6HHDWE6
+
+# Or use Make
+make helm-install
 ```
 
 ## 🔧 Configuration
@@ -165,7 +156,7 @@ helm install fga-sync ./charts/lfx-v2-fga-sync \
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `NATS_URL` | NATS server connection URL | `nats://nats:4222` | Yes |
+| `NATS_URL` | NATS server connection URL | `nats://localhost:4222` | Yes |
 | `FGA_API_URL` | OpenFGA API endpoint | - | Yes |
 | `FGA_STORE_ID` | OpenFGA store ID | - | Yes |
 | `FGA_MODEL_ID` | OpenFGA authorization model ID | - | Yes |
@@ -360,7 +351,7 @@ nats:
   url: "nats://lfx-platform-nats.lfx.svc.cluster.local:4222"
 
 fga:
-  apiUrl: "http://openfga.lopenfga.svc.cluster.local:8080"
+  apiUrl: "http://lfx-platform-openfga.lfx.svc.cluster.local:8080"
 ```
 
 ### Production Considerations
@@ -392,15 +383,3 @@ fga:
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🆘 Support
-
-- **Issues**: [GitHub Issues](https://github.com/linuxfoundation/lfx-v2-fga-sync/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/linuxfoundation/lfx-v2-fga-sync/discussions)
-- **Security**: Report security issues via [SECURITY.md](SECURITY.md)
-
-## 🙏 Acknowledgments
-
-- [OpenFGA](https://openfga.dev/) - Authorization framework
-- [NATS](https://nats.io/) - High-performance messaging system
-- [The Linux Foundation](https://www.linuxfoundation.org/) - Project stewardship
