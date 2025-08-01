@@ -57,8 +57,8 @@ make gosec         # Run security scanner
 
 ### Required Environment Variables
 
-- `NATS_URL`: NATS server connection URL (e.g., `nats://nats:4222`)
-- `FGA_API_URL`: OpenFGA API endpoint (e.g., `http://openfga:8080`)
+- `NATS_URL`: NATS server connection URL (e.g., `nats://localhost:4222`)
+- `FGA_API_URL`: OpenFGA API endpoint (e.g., `http://localhost:8080`)
 - `FGA_STORE_ID`: OpenFGA store ID
 - `FGA_MODEL_ID`: OpenFGA authorization model ID
 
@@ -170,8 +170,8 @@ Each message type has a dedicated handler function:
 # Set environment variables
 export NATS_URL="nats://localhost:4222"
 export FGA_API_URL="http://localhost:8080"
-export FGA_STORE_ID="01JZNYAVGM6F9N8CNK0MCPAHMT"
-export FGA_MODEL_ID="01JZNYHPGTB034VY61QCQAXJZ7"
+export FGA_STORE_ID="01K1GTJZW163H839J3YZHD8ZRY"
+export FGA_MODEL_ID="01K1H4TFHDSBCZVZ5EP6HHDWE6"
 
 # Run the service
 make run
@@ -183,9 +183,9 @@ make run
 # Deploy with Helm
 helm install fga-sync ./charts/lfx-v2-fga-sync \
   --set nats.url=nats://lfx-platform-nats.lfx.svc.cluster.local:4222 \
-  --set fga.apiUrl=http://openfga.lfx.svc.cluster.local:8080 \
-  --set fga.storeId=01JZNYAVGM6F9N8CNK0MCPAHMT \
-  --set fga.modelId=01JZNYHPGTB034VY61QCQAXJZ7
+  --set fga.apiUrl=http://lfx-platform-openfga.lfx.svc.cluster.local:8080 \
+  --set fga.storeId=01K1GTJZW163H839J3YZHD8ZRY \
+  --set fga.modelId=01K1H4TFHDSBCZVZ5EP6HHDWE6
 ```
 
 ## Troubleshooting

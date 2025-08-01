@@ -63,9 +63,12 @@
     "copyloopvar",
     "Expvar",
     "expvar",
-    "01JZNYHPGTB034VY61QCQAXJZ7",
-    "01JZNYAVGM6F9N8CNK0MCPAHMT",
-    "stretchr"
+    "01K1H4TFHDSBCZVZ5EP6HHDWE6",
+    "01K1GTJZW163H839J3YZHD8ZRY",
+    "stretchr",
+    "pipefail",
+    "slsa",
+    "sigstore"
   ],
   "overrides": [
     {

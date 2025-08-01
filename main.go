@@ -38,6 +38,8 @@ var (
 	natsConn        *nats.Conn
 	jetstreamConn   jetstream.JetStream
 	cacheBucketName string
+	// TODO: improve the configuration of the service to use dependency injection instead of global variables
+	useCache bool
 )
 
 func init() {
@@ -48,6 +50,10 @@ func init() {
 	cacheBucketName = os.Getenv("CACHE_BUCKET")
 	if cacheBucketName == "" {
 		cacheBucketName = "fga-sync-cache"
+	}
+	useCacheStr := os.Getenv("USE_CACHE")
+	if useCacheStr == "true" {
+		useCache = true
 	}
 }
 
@@ -109,6 +115,16 @@ func main() {
 	natsConn, err = nats.Connect(
 		natsURL,
 		nats.DrainTimeout(gracefulShutdownSeconds*time.Second),
+		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
+			if err != nil {
+				logger.With(errKey, err).Warn("NATS disconnected with error")
+			} else {
+				logger.Warn("NATS disconnected")
+			}
+		}),
+		nats.ReconnectHandler(func(nc *nats.Conn) {
+			logger.With("url", nc.ConnectedUrl()).Info("NATS reconnected")
+		}),
 		nats.ErrorHandler(func(_ *nats.Conn, s *nats.Subscription, err error) {
 			if s != nil {
 				logger.With(errKey, err, "subject", s.Subject, "queue", s.Queue).Error("async NATS error")
@@ -116,17 +132,21 @@ func main() {
 				logger.With(errKey, err).Error("async NATS error outside subscription")
 			}
 		}),
-		nats.ClosedHandler(func(_ *nats.Conn) {
+		nats.ClosedHandler(func(nc *nats.Conn) {
 			if ctx.Err() != nil {
 				// If our parent background context has already been canceled, this is
 				// a graceful shutdown. Decrement the wait group but do not exit, to
 				// allow other graceful shutdown steps to complete.
+				logger.Info("NATS closed handler called during graceful shutdown")
 				gracefulCloseWG.Done()
 				return
 			}
 			// Otherwise, this handler means that max reconnect attempts have been
 			// exhausted.
-			logger.Error("NATS max-reconnects exhausted; connection closed")
+			logger.With(
+				"lastError", nc.LastError(),
+				"stats", nc.Stats(),
+			).Error("NATS max-reconnects exhausted; connection closed")
 			// Send a synthetic interrupt and give any graceful-shutdown tasks 5
 			// seconds to clean up.
 			done <- os.Interrupt
