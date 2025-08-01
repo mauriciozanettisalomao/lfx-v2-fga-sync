@@ -1,0 +1,62 @@
+# Copyright The Linux Foundation and each contributor to LFX.
+# SPDX-License-Identifier: MIT
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Chart.Name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.application.replicas }}
+  selector:
+    matchLabels:
+      app: {{ .Chart.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Chart.Name }}
+    spec:
+      containers:
+        - name: app
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: "{{ .Values.image.pullPolicy }}"
+          securityContext:
+            allowPrivilegeEscalation: false
+          env:
+            - name: NATS_URL
+              value: "{{ .Values.nats.url }}"
+            - name: FGA_API_URL
+              value: "{{ .Values.fga.apiUrl }}"
+            - name: FGA_STORE_ID
+              value: "{{ .Values.fga.storeId }}"
+            - name: FGA_MODEL_ID
+              value: "{{ .Values.fga.modelId }}"
+            - name: CACHE_BUCKET
+              value: "{{ .Values.nats.cacheFgaKvBucket.name }}"
+            - name: DEBUG
+              value: "{{ .Values.application.debug }}"
+            - name: USE_CACHE
+              value: "{{ .Values.application.useCache }}"
+          ports:
+            - containerPort: 8080
+              name: web
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: web
+            failureThreshold: 3
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: web
+            failureThreshold: 1
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: web
+            failureThreshold: 30
+            periodSeconds: 1
+          resources:
+            {{toYaml .Values.application.resources | nindent 12}}

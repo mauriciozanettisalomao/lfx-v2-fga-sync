@@ -1,0 +1,21 @@
+# Copyright The Linux Foundation and each contributor to LFX.
+# SPDX-License-Identifier: MIT
+---
+{{- if .Values.nats.cacheFgaKvBucket.creation}}
+apiVersion: jetstream.nats.io/v1beta2
+kind: KeyValue
+metadata:
+  name: {{ .Values.nats.cacheFgaKvBucket.name }}
+  namespace: {{ .Release.Namespace }}
+  {{- if .Values.nats.cacheFgaKvBucket.keep }}
+  annotations:
+    "helm.sh/resource-policy": keep
+  {{- end }}
+spec:
+  bucket: {{ .Values.nats.cacheFgaKvBucket.name }}
+  history: {{ .Values.nats.cacheFgaKvBucket.history }}
+  storage: "{{ .Values.nats.cacheFgaKvBucket.storage }}"
+  maxValueSize: {{ .Values.nats.cacheFgaKvBucket.maxValueSize }}
+  maxBytes: {{ .Values.nats.cacheFgaKvBucket.maxBytes }}
+  compression: {{ .Values.nats.cacheFgaKvBucket.compression }}
+{{- end }}
