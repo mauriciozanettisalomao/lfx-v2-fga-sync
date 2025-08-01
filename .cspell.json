@@ -65,7 +65,10 @@
     "expvar",
     "01K1H4TFHDSBCZVZ5EP6HHDWE6",
     "01K1GTJZW163H839J3YZHD8ZRY",
-    "stretchr"
+    "stretchr",
+    "pipefail",
+    "slsa",
+    "sigstore"
   ],
   "overrides": [
     {

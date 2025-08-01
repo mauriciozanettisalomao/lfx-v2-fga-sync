@@ -38,7 +38,8 @@ var (
 	natsConn        *nats.Conn
 	jetstreamConn   jetstream.JetStream
 	cacheBucketName string
-	useCache        bool // TODO: improve the configuration of the service to use dependency injection instead of global variables
+	// TODO: improve the configuration of the service to use dependency injection instead of global variables
+	useCache bool
 )
 
 func init() {

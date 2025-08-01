@@ -4,7 +4,9 @@
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Go Version](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go)
 
-A high-performance microservice that synchronizes authorization data between NATS messaging and OpenFGA (Fine-Grained Authorization), providing cached relationship checks and real-time access control updates for the LFX Platform v2.
+A high-performance microservice that synchronizes authorization data between NATS messaging and OpenFGA
+(Fine-Grained Authorization), providing cached relationship checks and real-time access control updates for the
+LFX Platform v2.
 
 ## 🚀 Features
 
@@ -361,6 +363,42 @@ fga:
 - **Network Policies**: Restrict traffic to NATS and OpenFGA only
 - **Monitoring**: Set up alerts for cache hit rates and error rates
 
+## Releases
+
+### Creating a Release
+
+To create a new release of the project service:
+
+1. **Update the chart version** in `charts/lfx-v2-fga-sync/Chart.yaml` prior to any project releases, or if any
+   change is made to the chart manifests or configuration:
+
+   ```yaml
+   version: 0.2.0  # Increment this version
+   appVersion: "latest"  # Keep this as "latest"
+   ```
+
+2. **After the pull request is merged**, create a GitHub release and choose the
+   option for GitHub to also tag the repository. The tag must follow the format
+   `v{version}` (e.g., `v0.2.0`). This tag does _not_ have to match the chart
+   version: it is the version for the project release, which will dynamically
+   update the `appVersion` in the released chart.
+
+3. **The GitHub Actions workflow will automatically**:
+   - Build and publish the container images
+   - Package and publish the Helm chart to GitHub Pages
+   - Publish the chart to GitHub Container Registry (GHCR)
+   - Sign the chart with Cosign
+   - Generate SLSA provenance
+
+### Important Notes
+
+- The `appVersion` in `Chart.yaml` should always remain `"latest"` in the committed code.
+- During the release process, the `ko-build-tag.yaml` workflow automatically overrides the `appVersion` with the actual
+tag version (e.g., `v0.2.0` becomes `0.2.0`).
+- Only update the chart `version` field when making releases - this represents the Helm chart version.
+- The container image tags are automatically managed by the consolidated CI/CD pipeline using the git tag.
+- Both container images and the Helm chart are published together in a single workflow.
+
 ## 🤝 Contributing
 
 1. Fork the repository
@@ -368,17 +406,22 @@ fga:
 3. Make your changes
 4. Run tests (`make test`)
 5. Run quality checks (`make check`)
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
+6. Commit your changes to a feature branch in your fork. Ensure your commits
+   are signed with the [Developer Certificate of Origin
+   (DCO)](https://developercertificate.org/).
+   You can use the `git commit -s` command to sign your commits.
+7. Ensure the chart version in `charts/lfx-v2-fga-sync/Chart.yaml` has been
+   updated following semantic version conventions if you are making changes to the chart.
+8. Push to the branch (`git push origin feature/amazing-feature`)
+9. Open a Pull Request
 
 ### Code Standards
 
 - Follow Go best practices and idioms
-- Maintain test coverage above 80%
 - Use structured logging with appropriate levels
 - Include comprehensive error handling
 - Update documentation for new features
+- Add unit tests for features
 
 ## 📄 License
 
