@@ -56,9 +56,9 @@ type FgaService struct {
 func connectFga() (IFgaClient, error) {
 	var err error
 	fgaClient, err := NewSdkClient(&ClientConfiguration{
-		ApiUrl:               os.Getenv("FGA_API_URL"),
-		StoreId:              os.Getenv("FGA_STORE_ID"),
-		AuthorizationModelId: os.Getenv("FGA_MODEL_ID"),
+		ApiUrl:               os.Getenv("OPENFGA_API_URL"),
+		StoreId:              os.Getenv("OPENFGA_STORE_ID"),
+		AuthorizationModelId: os.Getenv("OPENFGA_AUTH_MODEL_ID"),
 	})
 	if err != nil {
 		return nil, err

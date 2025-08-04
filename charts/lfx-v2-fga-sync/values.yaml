@@ -11,6 +11,15 @@ image:
   # pullPolicy is the image pull policy
   pullPolicy: "IfNotPresent"
 
+# deployment is the configuration for the deployment
+deployment:
+  # labels are additional labels to add to the deployment
+  #   if fga-operator is running in the cluster, add the label 'openfga-store: <store-name>' to
+  #   automatically populate the OPENFGA_STORE_ID and OPENFGA_AUTH_MODEL_ID environment variables on the pods
+  labels: {}
+  # podLabels are additional labels to add to the pods
+  podLabels: {}
+
 # nats is the configuration for the NATS server
 nats:
   # url is the URL of the NATS server
@@ -43,9 +52,9 @@ nats:
 fga:
   # apiUrl is the URL of the OpenFGA API server
   apiUrl: http://lfx-platform-openfga.lfx.svc.cluster.local:8080
-  # storeId is the ID of the OpenFGA store
+  # storeId is the ID of the OpenFGA store, ignored if deployment.labels.openfga-store is set and the fga-operator is running
   storeId: 01K1GTJZW163H839J3YZHD8ZRY
-  # modelId is the ID of the OpenFGA model
+  # modelId is the ID of the OpenFGA model, ignored if deployment.labels.openfga-store is set and the fga-operator is running
   modelId: 01K1H4TFHDSBCZVZ5EP6HHDWE6
 
 # application is the configuration for the application

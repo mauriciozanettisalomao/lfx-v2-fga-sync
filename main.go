@@ -93,7 +93,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.With("url", os.Getenv("FGA_API_URL")).Info("OpenFGA client created")
+	logger.With("url", os.Getenv("OPENFGA_API_URL")).Info("OpenFGA client created")
 
 	// Create HTTP handlers for health checks.
 	createHTTPHandlers()

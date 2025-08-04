@@ -58,9 +58,9 @@ make gosec         # Run security scanner
 ### Required Environment Variables
 
 - `NATS_URL`: NATS server connection URL (e.g., `nats://localhost:4222`)
-- `FGA_API_URL`: OpenFGA API endpoint (e.g., `http://localhost:8080`)
-- `FGA_STORE_ID`: OpenFGA store ID
-- `FGA_MODEL_ID`: OpenFGA authorization model ID
+- `OPENFGA_API_URL`: OpenFGA API endpoint (e.g., `http://localhost:8080`)
+- `OPENFGA_STORE_ID`: OpenFGA store ID
+- `OPENFGA_AUTH_MODEL_ID`: OpenFGA authorization model ID
 
 ### Optional Environment Variables
 
@@ -169,9 +169,9 @@ Each message type has a dedicated handler function:
 ```bash
 # Set environment variables
 export NATS_URL="nats://localhost:4222"
-export FGA_API_URL="http://localhost:8080"
-export FGA_STORE_ID="01K1GTJZW163H839J3YZHD8ZRY"
-export FGA_MODEL_ID="01K1H4TFHDSBCZVZ5EP6HHDWE6"
+export OPENFGA_API_URL="http://localhost:8080"
+export OPENFGA_STORE_ID="01K1GTJZW163H839J3YZHD8ZRY"
+export OPENFGA_AUTH_MODEL_ID="01K1H4TFHDSBCZVZ5EP6HHDWE6"
 
 # Run the service
 make run
@@ -194,7 +194,7 @@ helm install fga-sync ./charts/lfx-v2-fga-sync \
 
 - **Build failures**: Ensure Go 1.24+ and run `go mod tidy`
 - **NATS connection**: Verify NATS_URL and network connectivity
-- **OpenFGA errors**: Check FGA_API_URL and ensure OpenFGA is healthy
+- **OpenFGA errors**: Check OPENFGA_API_URL and ensure OpenFGA is healthy
 - **Cache issues**: Monitor cache hit rates via `/debug/vars`
 
 ### Debugging

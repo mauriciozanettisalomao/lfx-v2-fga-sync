@@ -94,9 +94,9 @@ Dependencies you need but should get from [lfx-v2-helm](https://github.com/linux
    # This assumes you have the lfx-platform chart running
    # from https://github.com/linuxfoundation/lfx-v2-helm/tree/main
    export NATS_URL="nats://lfx-platform-nats.lfx.svc.cluster.local:4222"
-   export FGA_API_URL="http://lfx-platform-openfga.lfx.svc.cluster.local:8080"
-   export FGA_STORE_ID="01K1GTJZW163H839J3YZHD8ZRY"  # Use your actual store ID if you aren't using the lfx-platform chart
-   export FGA_MODEL_ID="01K1H4TFHDSBCZVZ5EP6HHDWE6"   # Use your actual model ID if you aren't using the lfx-platform chart
+   export OPENFGA_API_URL="http://lfx-platform-openfga.lfx.svc.cluster.local:8080"
+   export OPENFGA_STORE_ID="01K1GTJZW163H839J3YZHD8ZRY"  # Use your actual store ID if you aren't using the lfx-platform chart
+   export OPENFGA_AUTH_MODEL_ID="01K1H4TFHDSBCZVZ5EP6HHDWE6"   # Use your actual model ID if you aren't using the lfx-platform chart
    export CACHE_BUCKET="fga-sync-cache"
    export USE_CACHE=true
    export DEBUG=false
@@ -130,9 +130,9 @@ make docker-build
 # Run the container
 docker run -d \
   -e NATS_URL=nats://lfx-platform-nats.lfx.svc.cluster.local:4222 \
-  -e FGA_API_URL=http://lfx-platform-openfga.lfx.svc.cluster.local:8080 \
-  -e FGA_STORE_ID=01K1GTJZW163H839J3YZHD8ZRY \
-  -e FGA_MODEL_ID=01K1H4TFHDSBCZVZ5EP6HHDWE6 \
+  -e OPENFGA_API_URL=http://lfx-platform-openfga.lfx.svc.cluster.local:8080 \
+  -e OPENFGA_STORE_ID=01K1GTJZW163H839J3YZHD8ZRY \
+  -e OPENFGA_AUTH_MODEL_ID=01K1H4TFHDSBCZVZ5EP6HHDWE6 \
   -e CACHE_BUCKET=fga-sync-cache \
   -p 8080:8080 \
   linuxfoundation/lfx-v2-fga-sync:latest
@@ -159,9 +159,9 @@ make helm-install
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
 | `NATS_URL` | NATS server connection URL | `nats://localhost:4222` | Yes |
-| `FGA_API_URL` | OpenFGA API endpoint | - | Yes |
-| `FGA_STORE_ID` | OpenFGA store ID | - | Yes |
-| `FGA_MODEL_ID` | OpenFGA authorization model ID | - | Yes |
+| `OPENFGA_API_URL` | OpenFGA API endpoint | - | Yes |
+| `OPENFGA_STORE_ID` | OpenFGA store ID | - | Yes |
+| `OPENFGA_AUTH_MODEL_ID` | OpenFGA authorization model ID | - | Yes |
 | `CACHE_BUCKET` | JetStream KeyValue bucket name | `fga-sync-cache` | No |
 | `USE_CACHE` | Whether to try to use cache for access checks | `false` | No |
 | `PORT` | HTTP server port | `8080` | No |
