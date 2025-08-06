@@ -14,11 +14,12 @@ image:
 # deployment is the configuration for the deployment
 deployment:
   # labels are additional labels to add to the deployment
-  # When fga-operator is running in the cluster, add the label
-  # 'openfga-store: <store-name>' to automatically populate the
+  # When fga-operator is running in the cluster, adding the label
+  # 'openfga-store: <store-name>' will automatically populate the
   # OPENFGA_STORE_ID and OPENFGA_AUTH_MODEL_ID environment variables
-  # on the pods, overriding fga.storeId and fga.modelId
-  labels: {}
+  # on the pod, overriding fga.storeId and fga.modelId
+  labels:
+    openfga-store: "lfx-core"
   # podLabels are additional labels to add to the pods
   podLabels: {}
 
