@@ -34,7 +34,8 @@ spec:
               value: "{{ .Values.nats.url }}"
             - name: OPENFGA_API_URL
               value: "{{ .Values.fga.apiUrl }}"
-            {{- if not (hasKey .Values.deployment.labels "openfga-store") }}
+            {{- $labels := default (dict) .Values.deployment.labels }}
+            {{- if not (hasKey $labels "openfga-store") }}
             - name: OPENFGA_STORE_ID
               value: "{{ .Values.fga.storeId }}"
             - name: OPENFGA_AUTH_MODEL_ID
