@@ -55,10 +55,22 @@ type FgaService struct {
 // does not use or support authentication.
 func connectFga() (IFgaClient, error) {
 	var err error
+	fgaURL := os.Getenv("OPENFGA_API_URL")
+	fgaStoreID := os.Getenv("OPENFGA_STORE_ID")
+	fgaAuthModelID := os.Getenv("OPENFGA_AUTH_MODEL_ID")
+	if fgaURL == "" {
+		return nil, fmt.Errorf("OPENFGA_API_URL must be set")
+	}
+	if fgaStoreID == "" {
+		return nil, fmt.Errorf("OPENFGA_STORE_ID must be set")
+	}
+	if fgaAuthModelID == "" {
+		return nil, fmt.Errorf("OPENFGA_AUTH_MODEL_ID must be set")
+	}
 	fgaClient, err := NewSdkClient(&ClientConfiguration{
-		ApiUrl:               os.Getenv("FGA_API_URL"),
-		StoreId:              os.Getenv("FGA_STORE_ID"),
-		AuthorizationModelId: os.Getenv("FGA_MODEL_ID"),
+		ApiUrl:               fgaURL,
+		StoreId:              fgaStoreID,
+		AuthorizationModelId: fgaAuthModelID,
 	})
 	if err != nil {
 		return nil, err
