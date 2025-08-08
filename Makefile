@@ -3,7 +3,7 @@
 
 # Application variables
 APP_NAME := lfx-v2-fga-sync
-APP_VERSION := 0.1.0
+APP_VERSION := latest
 
 # Docker variables
 DOCKER_REGISTRY := linuxfoundation

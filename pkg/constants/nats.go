@@ -31,9 +31,9 @@ const (
 	// The subject is of the form: lfx.delete_all_access.meeting
 	MeetingDeleteAllAccessSubject = "lfx.delete_all_access.meeting"
 
-	// MeetingRegistrantAddSubject is the subject for adding meeting registrants.
-	// The subject is of the form: lfx.add_registrant.meeting
-	MeetingRegistrantAddSubject = "lfx.add_registrant.meeting"
+	// MeetingRegistrantPutSubject is the subject for adding meeting registrants.
+	// The subject is of the form: lfx.put_registrant.meeting
+	MeetingRegistrantPutSubject = "lfx.put_registrant.meeting"
 
 	// MeetingRegistrantRemoveSubject is the subject for removing meeting registrants.
 	// The subject is of the form: lfx.remove_registrant.meeting

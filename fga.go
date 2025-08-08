@@ -287,6 +287,13 @@ func (s FgaService) WriteAndDeleteTuples(
 		logger.With(errKey, err).WarnContext(ctx, "cache invalidation failed")
 	}
 
+	logger.With(
+		"writes_count", len(writes),
+		"deletes_count", len(deletes),
+		"writes", writes,
+		"deletes", deletes,
+	).InfoContext(ctx, "wrote and deleted tuples")
+
 	return nil
 }
 

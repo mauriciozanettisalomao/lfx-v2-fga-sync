@@ -119,7 +119,7 @@ meeting-123
 
 Simple meeting UID string.
 
-### Meeting Registrant Add Message (`lfx.add_registrant.meeting`)
+### Meeting Registrant Put Message (`lfx.put_registrant.meeting`)
 
 ```json
 {
@@ -180,6 +180,7 @@ Each message type has a dedicated handler function:
 ### Service Abstraction
 
 **FgaService should remain generic and object-agnostic:**
+
 - FgaService should not contain business logic specific to projects, meetings, or other domain objects
 - It should only provide generic tuple management operations (read, write, delete, sync)
 - All business-specific logic should remain in the handlers

@@ -328,9 +328,9 @@ func createQueueSubscriptions(handlerService HandlerService) error {
 			description: "meeting delete all access",
 		},
 		{
-			subject:     constants.MeetingRegistrantAddSubject,
-			handler:     handlerService.meetingRegistrantAddHandler,
-			description: "meeting registrant add",
+			subject:     constants.MeetingRegistrantPutSubject,
+			handler:     handlerService.meetingRegistrantPutHandler,
+			description: "meeting registrant put",
 		},
 		{
 			subject:     constants.MeetingRegistrantRemoveSubject,

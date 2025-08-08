@@ -39,11 +39,6 @@ func (h *HandlerService) buildMeetingTuples(
 		tuples = append(
 			tuples,
 			h.fgaService.TupleKey(constants.ObjectTypeProject+meeting.ProjectUID, constants.RelationProject, object),
-			h.fgaService.TupleKey(
-				meeting.ProjectUID+"#"+constants.RelationMeetingOrganizer,
-				constants.RelationOrganizer,
-				object,
-			),
 		)
 	}
 
@@ -52,7 +47,6 @@ func (h *HandlerService) buildMeetingTuples(
 		tuples = append(
 			tuples,
 			h.fgaService.TupleKey(constants.ObjectTypeCommittee+committee, constants.RelationCommittee, object),
-			h.fgaService.TupleKey(committee+"#"+constants.RelationMember, constants.RelationParticipant, object),
 		)
 	}
 
@@ -89,7 +83,7 @@ func (h *HandlerService) buildMeetingTuples(
 func (h *HandlerService) meetingUpdateAccessHandler(message INatsMsg) error {
 	ctx := context.Background()
 
-	logger.With("message", string(message.Data())).InfoContext(ctx, "handling project access control update")
+	logger.With("message", string(message.Data())).InfoContext(ctx, "handling meeting access control update")
 
 	// Parse the event data.
 	meeting := new(meetingStub)
@@ -155,6 +149,8 @@ func (h *HandlerService) meetingDeleteAllAccessHandler(message INatsMsg) error {
 type registrantStub struct {
 	// UID is the registrant ID for the user's registration on the meeting.
 	UID string `json:"uid"`
+	// Username is the username (i.e. LFID) of the registrant. This is the identity of the user object in FGA.
+	Username string `json:"username"`
 	// MeetingUID is the meeting ID for the meeting the registrant is registered for.
 	MeetingUID string `json:"meeting_uid"`
 	// Host determines whether the user should get host relation on the meeting
@@ -165,7 +161,7 @@ type registrantStub struct {
 type registrantOperation int
 
 const (
-	registrantAdd registrantOperation = iota
+	registrantPut registrantOperation = iota
 	registrantRemove
 )
 
@@ -174,8 +170,8 @@ func (h *HandlerService) processRegistrantMessage(message INatsMsg, operation re
 	ctx := context.Background()
 
 	// Log the operation type
-	operationType := "add"
-	responseMsg := "sent registrant add response"
+	operationType := "put"
+	responseMsg := "sent registrant put response"
 	if operation == registrantRemove {
 		operationType = "remove"
 		responseMsg = "sent registrant remove response"
@@ -192,9 +188,9 @@ func (h *HandlerService) processRegistrantMessage(message INatsMsg, operation re
 	}
 
 	// Validate required fields.
-	if registrant.UID == "" {
-		logger.ErrorContext(ctx, "registrant UID not found")
-		return errors.New("registrant UID not found")
+	if registrant.Username == "" {
+		logger.ErrorContext(ctx, "registrant username not found")
+		return errors.New("registrant username not found")
 	}
 	if registrant.MeetingUID == "" {
 		logger.ErrorContext(ctx, "meeting UID not found")
@@ -216,42 +212,117 @@ func (h *HandlerService) processRegistrantMessage(message INatsMsg, operation re
 
 		logger.InfoContext(ctx, responseMsg,
 			"meeting", constants.ObjectTypeMeeting+registrant.MeetingUID,
-			"registrant", constants.ObjectTypeUser+registrant.UID,
+			"registrant", constants.ObjectTypeUser+registrant.Username,
 		)
 	}
 
 	return nil
 }
 
-// handleRegistrantOperation handles the FGA operation for adding/removing registrants
+// handleRegistrantOperation handles the FGA operation for putting/removing registrants
 func (h *HandlerService) handleRegistrantOperation(
 	ctx context.Context,
 	registrant *registrantStub,
 	operation registrantOperation,
 ) error {
 	meetingObject := constants.ObjectTypeMeeting + registrant.MeetingUID
-	userPrincipal := constants.ObjectTypeUser + registrant.UID
+	userPrincipal := constants.ObjectTypeUser + registrant.Username
 
-	// Determine the relation based on whether they are a host
+	switch operation {
+	case registrantPut:
+		return h.putRegistrant(ctx, userPrincipal, meetingObject, registrant.Host)
+	case registrantRemove:
+		return h.removeRegistrant(ctx, userPrincipal, meetingObject, registrant.Host)
+	default:
+		return errors.New("unknown registrant operation")
+	}
+}
+
+// putRegistrant implements idempotent put operation for registrant relations
+func (h *HandlerService) putRegistrant(ctx context.Context, userPrincipal, meetingObject string, isHost bool) error {
+	// Determine the desired relation
+	desiredRelation := constants.RelationParticipant
+	if isHost {
+		desiredRelation = constants.RelationHost
+	}
+
+	// Read existing relations for this user on this meeting
+	existingTuples, err := h.fgaService.ReadObjectTuples(ctx, meetingObject)
+	if err != nil {
+		logger.ErrorContext(ctx, "failed to read existing meeting tuples",
+			errKey, err,
+			"user", userPrincipal,
+			"meeting", meetingObject,
+		)
+		return err
+	}
+
+	// Find existing registrant relations for this user
+	var tuplesToDelete []client.ClientTupleKeyWithoutCondition
+	var hasDesiredRelation bool
+
+	for _, tuple := range existingTuples {
+		if tuple.Key.User == userPrincipal &&
+			(tuple.Key.Relation == constants.RelationParticipant || tuple.Key.Relation == constants.RelationHost) {
+			if tuple.Key.Relation == desiredRelation {
+				hasDesiredRelation = true
+			} else {
+				// This is an existing relation that needs to be removed
+				tuplesToDelete = append(tuplesToDelete, client.ClientTupleKeyWithoutCondition{
+					User:     tuple.Key.User,
+					Relation: tuple.Key.Relation,
+					Object:   tuple.Key.Object,
+				})
+			}
+		}
+	}
+
+	// Prepare write operations
+	var tuplesToWrite []client.ClientTupleKey
+	if !hasDesiredRelation {
+		tuplesToWrite = append(tuplesToWrite, h.fgaService.TupleKey(userPrincipal, desiredRelation, meetingObject))
+	}
+
+	// Apply changes if needed
+	if len(tuplesToWrite) > 0 || len(tuplesToDelete) > 0 {
+		err = h.fgaService.WriteAndDeleteTuples(ctx, tuplesToWrite, tuplesToDelete)
+		if err != nil {
+			logger.ErrorContext(ctx, "failed to put registrant tuple",
+				errKey, err,
+				"user", userPrincipal,
+				"relation", desiredRelation,
+				"meeting", meetingObject,
+			)
+			return err
+		}
+
+		logger.With(
+			"user", userPrincipal,
+			"relation", desiredRelation,
+			"meeting", meetingObject,
+		).InfoContext(ctx, "put registrant to meeting")
+	} else {
+		logger.With(
+			"user", userPrincipal,
+			"relation", desiredRelation,
+			"meeting", meetingObject,
+		).InfoContext(ctx, "registrant already has correct relation - no changes needed")
+	}
+
+	return nil
+}
+
+// removeRegistrant removes all registrant relations for a user from a meeting
+func (h *HandlerService) removeRegistrant(ctx context.Context, userPrincipal, meetingObject string, isHost bool) error {
+	// Determine the relation to remove
 	relation := constants.RelationParticipant
-	if registrant.Host {
+	if isHost {
 		relation = constants.RelationHost
 	}
 
-	var err error
-	var operationName string
-
-	switch operation {
-	case registrantAdd:
-		operationName = "write"
-		err = h.fgaService.WriteTuple(ctx, userPrincipal, relation, meetingObject)
-	case registrantRemove:
-		operationName = "delete"
-		err = h.fgaService.DeleteTuple(ctx, userPrincipal, relation, meetingObject)
-	}
-
+	err := h.fgaService.DeleteTuple(ctx, userPrincipal, relation, meetingObject)
 	if err != nil {
-		logger.ErrorContext(ctx, "failed to "+operationName+" registrant tuple",
+		logger.ErrorContext(ctx, "failed to remove registrant tuple",
 			errKey, err,
 			"user", userPrincipal,
 			"relation", relation,
@@ -260,23 +331,18 @@ func (h *HandlerService) handleRegistrantOperation(
 		return err
 	}
 
-	actionName := "added registrant to"
-	if operation == registrantRemove {
-		actionName = "removed registrant from"
-	}
-
 	logger.With(
 		"user", userPrincipal,
 		"relation", relation,
 		"meeting", meetingObject,
-	).InfoContext(ctx, actionName+" meeting")
+	).InfoContext(ctx, "removed registrant from meeting")
 
 	return nil
 }
 
-// meetingRegistrantAddHandler handles adding a registrant to a meeting.
-func (h *HandlerService) meetingRegistrantAddHandler(message INatsMsg) error {
-	return h.processRegistrantMessage(message, registrantAdd)
+// meetingRegistrantPutHandler handles putting a registrant to a meeting (idempotent create/update).
+func (h *HandlerService) meetingRegistrantPutHandler(message INatsMsg) error {
+	return h.processRegistrantMessage(message, registrantPut)
 }
 
 // meetingRegistrantRemoveHandler handles removing a registrant from a meeting.

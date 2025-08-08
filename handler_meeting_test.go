@@ -55,11 +55,10 @@ func TestMeetingUpdateAccessHandler(t *testing.T) {
 					ContinuationToken: "",
 				}, nil).Once()
 
-				// Mock the Write operation - expect 11 tuples:
-				// 1 public viewer, 1 project relation, 1 project#meeting_organizer relation,
-				// 2 committees, 2 committee#member participants, 2 project organizers, 2 meeting organizers
+				// Mock the Write operation - expect 8 tuples:
+				// 1 public viewer, 1 project relation, 2 committees, 2 project organizers, 2 meeting organizers
 				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
-					return len(req.Writes) == 11 && len(req.Deletes) == 0
+					return len(req.Writes) == 8 && len(req.Deletes) == 0
 				})).Return(&ClientWriteResponse{}, nil).Once()
 
 				// Mock cache operations
@@ -97,9 +96,9 @@ func TestMeetingUpdateAccessHandler(t *testing.T) {
 					ContinuationToken: "",
 				}, nil).Once()
 
-				// Mock the Write operation - expect 3 tuples: 1 project relation, 1 project#meeting_organizer relation, 1 meeting organizer
+				// Mock the Write operation - expect 2 tuples: 1 project relation, 1 meeting organizer
 				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
-					return len(req.Writes) == 3 && len(req.Deletes) == 0
+					return len(req.Writes) == 2 && len(req.Deletes) == 0
 				})).Return(&ClientWriteResponse{}, nil).Once()
 
 				// Mock cache operations
@@ -150,9 +149,9 @@ func TestMeetingUpdateAccessHandler(t *testing.T) {
 					ContinuationToken: "",
 				}, nil).Once()
 
-				// Mock the Write operation - expect 3 tuples: 1 project relation, 1 project#meeting_organizer relation, 1 meeting organizer
+				// Mock the Write operation - expect 2 tuples: 1 project relation, 1 meeting organizer
 				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
-					return len(req.Writes) == 3 && len(req.Deletes) == 0
+					return len(req.Writes) == 2 && len(req.Deletes) == 0
 				})).Return(&ClientWriteResponse{}, nil).Once()
 
 				// Mock cache operations
@@ -291,8 +290,8 @@ func TestMeetingDeleteAllAccessHandler(t *testing.T) {
 	}
 }
 
-// TestMeetingRegistrantAddHandler tests the meetingRegistrantAddHandler function
-func TestMeetingRegistrantAddHandler(t *testing.T) {
+// TestMeetingRegistrantPutHandler tests the meetingRegistrantPutHandler function
+func TestMeetingRegistrantPutHandler(t *testing.T) {
 	tests := []struct {
 		name           string
 		messageData    []byte
@@ -302,9 +301,9 @@ func TestMeetingRegistrantAddHandler(t *testing.T) {
 		expectedCalled bool
 	}{
 		{
-			name: "add participant",
+			name: "put participant (new registrant)",
 			messageData: mustJSON(registrantStub{
-				UID:        "user-123",
+				Username:   "user-123",
 				MeetingUID: "meeting-456",
 				Host:       false,
 			}),
@@ -312,7 +311,15 @@ func TestMeetingRegistrantAddHandler(t *testing.T) {
 			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
 				msg.On("Respond", []byte("OK")).Return(nil).Once()
 
-				// Mock the Write operation for participant relation
+				// Mock the Read operation to check existing relations (return empty - new registrant)
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "meeting:meeting-456"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples:            []openfga.Tuple{},
+					ContinuationToken: "",
+				}, nil).Once()
+
+				// Mock the WriteAndDeleteTuples operation for participant relation
 				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
 					return len(req.Writes) == 1 && len(req.Deletes) == 0 &&
 						req.Writes[0].User == "user:user-123" &&
@@ -327,9 +334,9 @@ func TestMeetingRegistrantAddHandler(t *testing.T) {
 			expectedCalled: true,
 		},
 		{
-			name: "add host",
+			name: "put host (new registrant)",
 			messageData: mustJSON(registrantStub{
-				UID:        "host-123",
+				Username:   "host-123",
 				MeetingUID: "meeting-456",
 				Host:       true,
 			}),
@@ -337,7 +344,15 @@ func TestMeetingRegistrantAddHandler(t *testing.T) {
 			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
 				// No reply expected
 
-				// Mock the Write operation for host relation
+				// Mock the Read operation to check existing relations (return empty - new registrant)
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "meeting:meeting-456"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples:            []openfga.Tuple{},
+					ContinuationToken: "",
+				}, nil).Once()
+
+				// Mock the WriteAndDeleteTuples operation for host relation
 				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
 					return len(req.Writes) == 1 && len(req.Deletes) == 0 &&
 						req.Writes[0].User == "user:host-123" &&
@@ -347,6 +362,70 @@ func TestMeetingRegistrantAddHandler(t *testing.T) {
 
 				// Mock cache operations
 				service.fgaService.cacheBucket.(*MockKeyValue).On("Put", mock.Anything, "inv", mock.Anything).Return(uint64(1), nil).Once()
+			},
+			expectedError:  false,
+			expectedCalled: false,
+		},
+		{
+			name: "put participant to host (role change)",
+			messageData: mustJSON(registrantStub{
+				Username:   "user-123",
+				MeetingUID: "meeting-456",
+				Host:       true,
+			}),
+			replySubject: "reply.subject",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				msg.On("Respond", []byte("OK")).Return(nil).Once()
+
+				// Mock the Read operation to return existing participant relation
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "meeting:meeting-456"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples: []openfga.Tuple{
+						{Key: openfga.TupleKey{User: "user:user-123", Relation: "participant", Object: "meeting:meeting-456"}},
+					},
+					ContinuationToken: "",
+				}, nil).Once()
+
+				// Mock the WriteAndDeleteTuples operation (delete participant, add host)
+				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
+					return len(req.Writes) == 1 && len(req.Deletes) == 1 &&
+						req.Writes[0].User == "user:user-123" &&
+						req.Writes[0].Relation == "host" &&
+						req.Writes[0].Object == "meeting:meeting-456" &&
+						req.Deletes[0].User == "user:user-123" &&
+						req.Deletes[0].Relation == "participant" &&
+						req.Deletes[0].Object == "meeting:meeting-456"
+				})).Return(&ClientWriteResponse{}, nil).Once()
+
+				// Mock cache operations
+				service.fgaService.cacheBucket.(*MockKeyValue).On("Put", mock.Anything, "inv", mock.Anything).Return(uint64(1), nil).Once()
+			},
+			expectedError:  false,
+			expectedCalled: true,
+		},
+		{
+			name: "put host - already exists (no changes)",
+			messageData: mustJSON(registrantStub{
+				Username:   "host-123",
+				MeetingUID: "meeting-456",
+				Host:       true,
+			}),
+			replySubject: "",
+			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
+				// No reply expected
+
+				// Mock the Read operation to return existing host relation
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "meeting:meeting-456"
+				}), mock.Anything).Return(&ClientReadResponse{
+					Tuples: []openfga.Tuple{
+						{Key: openfga.TupleKey{User: "user:host-123", Relation: "host", Object: "meeting:meeting-456"}},
+					},
+					ContinuationToken: "",
+				}, nil).Once()
+
+				// No WriteAndDeleteTuples call expected since no changes needed
 			},
 			expectedError:  false,
 			expectedCalled: false,
@@ -362,18 +441,18 @@ func TestMeetingRegistrantAddHandler(t *testing.T) {
 			expectedCalled: false,
 		},
 		{
-			name:         "missing registrant UID",
+			name:         "missing registrant LFID",
 			messageData:  mustJSON(registrantStub{MeetingUID: "meeting-456"}),
 			replySubject: "reply.subject",
 			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
-				// No mocks needed - should fail at UID validation
+				// No mocks needed - should fail at LFID validation
 			},
 			expectedError:  true,
 			expectedCalled: false,
 		},
 		{
 			name:         "missing meeting UID",
-			messageData:  mustJSON(registrantStub{UID: "user-123"}),
+			messageData:  mustJSON(registrantStub{Username: "user-123"}),
 			replySubject: "reply.subject",
 			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
 				// No mocks needed - should fail at meeting UID validation
@@ -382,21 +461,18 @@ func TestMeetingRegistrantAddHandler(t *testing.T) {
 			expectedCalled: false,
 		},
 		{
-			name: "write operation fails",
+			name: "read operation fails",
 			messageData: mustJSON(registrantStub{
-				UID:        "user-123",
+				Username:   "user-123",
 				MeetingUID: "meeting-456",
 				Host:       false,
 			}),
 			replySubject: "",
 			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
-				// Mock the Write operation to fail
-				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
-					return len(req.Writes) == 1 && len(req.Deletes) == 0 &&
-						req.Writes[0].User == "user:user-123" &&
-						req.Writes[0].Relation == "participant" &&
-						req.Writes[0].Object == "meeting:meeting-456"
-				})).Return((*ClientWriteResponse)(nil), assert.AnError).Once()
+				// Mock the Read operation to fail
+				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
+					return req.Object != nil && *req.Object == "meeting:meeting-456"
+				}), mock.Anything).Return((*ClientReadResponse)(nil), assert.AnError).Once()
 			},
 			expectedError:  true,
 			expectedCalled: false,
@@ -413,7 +489,7 @@ func TestMeetingRegistrantAddHandler(t *testing.T) {
 
 			// Test that the function doesn't panic
 			assert.NotPanics(t, func() {
-				err := handlerService.meetingRegistrantAddHandler(msg)
+				err := handlerService.meetingRegistrantPutHandler(msg)
 				if tt.expectedError {
 					assert.Error(t, err)
 				} else {
@@ -444,7 +520,7 @@ func TestMeetingRegistrantRemoveHandler(t *testing.T) {
 		{
 			name: "remove participant",
 			messageData: mustJSON(registrantStub{
-				UID:        "user-123",
+				Username:   "user-123",
 				MeetingUID: "meeting-456",
 				Host:       false,
 			}),
@@ -469,7 +545,7 @@ func TestMeetingRegistrantRemoveHandler(t *testing.T) {
 		{
 			name: "remove host",
 			messageData: mustJSON(registrantStub{
-				UID:        "host-123",
+				Username:   "host-123",
 				MeetingUID: "meeting-456",
 				Host:       true,
 			}),
