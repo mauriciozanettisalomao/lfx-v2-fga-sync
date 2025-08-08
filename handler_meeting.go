@@ -23,7 +23,6 @@ type meetingStub struct {
 
 // buildMeetingTuples builds all of the tuples for a meeting object.
 func (h *HandlerService) buildMeetingTuples(
-	ctx context.Context,
 	object string,
 	meeting *meetingStub,
 ) ([]client.ClientTupleKey, error) {
@@ -48,24 +47,6 @@ func (h *HandlerService) buildMeetingTuples(
 			tuples,
 			h.fgaService.TupleKey(constants.ObjectTypeCommittee+committee, constants.RelationCommittee, object),
 		)
-	}
-
-	// Query the project's meeting organizers from OpenFGA to give each project-level meeting
-	// organizer the organizer relation with the meeting.
-	projectObject := constants.ObjectTypeProject + meeting.ProjectUID
-	projectOrganizers, err := h.fgaService.GetTuplesByRelation(ctx, projectObject, constants.RelationMeetingOrganizer)
-	if err != nil {
-		logger.WarnContext(
-			ctx,
-			"failed to read project tuples, continuing without project organizers",
-			errKey, err,
-			"project", projectObject,
-		)
-		// Continue without project organizers rather than failing the entire update
-	} else {
-		for _, tuple := range projectOrganizers {
-			tuples = append(tuples, h.fgaService.TupleKey(tuple.Key.User, constants.RelationOrganizer, object))
-		}
 	}
 
 	// Each organizer set on the meeting according to the payload should get the organizer relation.
@@ -107,7 +88,7 @@ func (h *HandlerService) meetingUpdateAccessHandler(message INatsMsg) error {
 	// It is important that all tuples that should exist with respect to the meeting object
 	// should be added to this tuples list because when SyncObjectTuples is called, it will delete
 	// all tuples that are not in the tuples list parameter.
-	tuples, err := h.buildMeetingTuples(ctx, object, meeting)
+	tuples, err := h.buildMeetingTuples(object, meeting)
 	if err != nil {
 		logger.With(errKey, err, "object", object).ErrorContext(ctx, "failed to build meeting tuples")
 		return err

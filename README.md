@@ -230,7 +230,8 @@ Below is an example of the project message schema.
   "public": true,
   "parent_uid": "7cad5a8d-19d0-41a4-81a6-043453daf9ef7cad5a8d-19d0-41a4-81a6-043453daf9ee", 
   "writers": ["user1", "user2"],
-  "auditors": ["auditor1"]
+  "auditors": ["auditor1"],
+  "meeting_coordinators": ["coordinator1", "coordinator2"]
 }
 ```
 

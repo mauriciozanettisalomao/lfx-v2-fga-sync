@@ -675,28 +675,28 @@ func TestGetTuplesByRelation(t *testing.T) {
 		description    string
 	}{
 		{
-			name:     "filter by meeting_organizer relation",
+			name:     "filter by meeting_coordinator relation",
 			object:   "project:123",
-			relation: "meeting_organizer",
+			relation: "meeting_coordinator",
 			mockSetup: func(m *MockFgaClient) {
 				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
 					return req.Object != nil && *req.Object == "project:123"
 				}), mock.Anything).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
-						{Key: openfga.TupleKey{User: "user:organizer1", Relation: "meeting_organizer", Object: "project:123"}},
+						{Key: openfga.TupleKey{User: "user:organizer1", Relation: "meeting_coordinator", Object: "project:123"}},
 						{Key: openfga.TupleKey{User: "user:admin1", Relation: "admin", Object: "project:123"}},
-						{Key: openfga.TupleKey{User: "user:organizer2", Relation: "meeting_organizer", Object: "project:123"}},
+						{Key: openfga.TupleKey{User: "user:organizer2", Relation: "meeting_coordinator", Object: "project:123"}},
 						{Key: openfga.TupleKey{User: "user:viewer1", Relation: "viewer", Object: "project:123"}},
 					},
 					ContinuationToken: "",
 				}, nil).Once()
 			},
 			expectedTuples: []openfga.Tuple{
-				{Key: openfga.TupleKey{User: "user:organizer1", Relation: "meeting_organizer", Object: "project:123"}},
-				{Key: openfga.TupleKey{User: "user:organizer2", Relation: "meeting_organizer", Object: "project:123"}},
+				{Key: openfga.TupleKey{User: "user:organizer1", Relation: "meeting_coordinator", Object: "project:123"}},
+				{Key: openfga.TupleKey{User: "user:organizer2", Relation: "meeting_coordinator", Object: "project:123"}},
 			},
 			expectError: false,
-			description: "should return only meeting_organizer tuples",
+			description: "should return only meeting_coordinator tuples",
 		},
 		{
 			name:     "filter by admin relation",

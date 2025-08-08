@@ -9,12 +9,12 @@ package constants
 // (e.g. RelationViewer is the same for both project and meeting)
 const (
 	// Project relations
-	RelationParent           = "parent"
-	RelationOwner            = "owner"
-	RelationWriter           = "writer"
-	RelationAuditor          = "auditor"
-	RelationMeetingOrganizer = "meeting_organizer"
-	RelationViewer           = "viewer"
+	RelationParent             = "parent"
+	RelationOwner              = "owner"
+	RelationWriter             = "writer"
+	RelationAuditor            = "auditor"
+	RelationMeetingCoordinator = "meeting_coordinator"
+	RelationViewer             = "viewer"
 
 	// Meeting relations
 	RelationProject     = "project"

@@ -15,12 +15,12 @@ import (
 // TODO: update this payload schema to come from the project service
 // Ticket https://linuxfoundation.atlassian.net/browse/LFXV2-147
 type projectStub struct {
-	UID               string   `json:"uid"`
-	Public            bool     `json:"public"`
-	ParentUID         string   `json:"parent_uid"`
-	Writers           []string `json:"writers"`
-	Auditors          []string `json:"auditors"`
-	MeetingOrganizers []string `json:"meeting_organizers"`
+	UID                 string   `json:"uid"`
+	Public              bool     `json:"public"`
+	ParentUID           string   `json:"parent_uid"`
+	Writers             []string `json:"writers"`
+	Auditors            []string `json:"auditors"`
+	MeetingCoordinators []string `json:"meeting_coordinators"`
 }
 
 // projectUpdateAccessHandler handles project access control updates.
@@ -69,6 +69,12 @@ func (h *HandlerService) projectUpdateAccessHandler(message INatsMsg) error {
 	}
 	for _, principal := range project.Auditors {
 		tuples = append(tuples, h.fgaService.TupleKey(constants.ObjectTypeUser+principal, constants.RelationAuditor, object))
+	}
+	for _, principal := range project.MeetingCoordinators {
+		tuples = append(
+			tuples,
+			h.fgaService.TupleKey(constants.ObjectTypeUser+principal, constants.RelationMeetingCoordinator, object),
+		)
 	}
 
 	tuplesWrites, tuplesDeletes, err := h.fgaService.SyncObjectTuples(ctx, object, tuples)

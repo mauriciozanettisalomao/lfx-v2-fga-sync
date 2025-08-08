@@ -36,17 +36,6 @@ func TestMeetingUpdateAccessHandler(t *testing.T) {
 			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
 				msg.On("Respond", []byte("OK")).Return(nil).Once()
 
-				// Mock GetTuplesByRelation call - return some project organizers
-				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
-					return req.Object != nil && *req.Object == "project:project-456"
-				}), mock.Anything).Return(&ClientReadResponse{
-					Tuples: []openfga.Tuple{
-						{Key: openfga.TupleKey{User: "user:proj-organizer1", Relation: "meeting_organizer", Object: "project:project-456"}},
-						{Key: openfga.TupleKey{User: "user:proj-organizer2", Relation: "meeting_organizer", Object: "project:project-456"}},
-					},
-					ContinuationToken: "",
-				}, nil).Once()
-
 				// Mock the Read operation for SyncObjectTuples
 				service.fgaService.client.(*MockFgaClient).On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
 					return req.Object != nil && *req.Object == "meeting:meeting-123"
@@ -55,10 +44,10 @@ func TestMeetingUpdateAccessHandler(t *testing.T) {
 					ContinuationToken: "",
 				}, nil).Once()
 
-				// Mock the Write operation - expect 8 tuples:
-				// 1 public viewer, 1 project relation, 2 committees, 2 project organizers, 2 meeting organizers
+				// Mock the Write operation - expect 6 tuples:
+				// 1 public viewer, 1 project relation, 2 committees, 2 meeting organizers
 				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
-					return len(req.Writes) == 8 && len(req.Deletes) == 0
+					return len(req.Writes) == 6 && len(req.Deletes) == 0
 				})).Return(&ClientWriteResponse{}, nil).Once()
 
 				// Mock cache operations
