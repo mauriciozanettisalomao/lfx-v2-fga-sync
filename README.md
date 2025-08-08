@@ -142,14 +142,14 @@ docker run -d \
 
 ```bash
 # Deploy using Helm
-helm install lfx-v2-fga-sync ./charts/lfx-v2-fga-sync \
-  --set nats.url=nats://lfx-platform-nats.lfx.svc.cluster.local:4222 \
-  --set fga.apiUrl=http://lfx-platform-openfga.lfx.svc.cluster.local:8080 \
-  --set fga.storeId=01K1GTJZW163H839J3YZHD8ZRY \
-  --set fga.modelId=01K1H4TFHDSBCZVZ5EP6HHDWE6
+helm install lfx-v2-fga-sync ./charts/lfx-v2-fga-sync -n lfx
 
 # Or use Make
 make helm-install
+
+# Optionally deploy with custom local values (values.local.yaml) instead
+# Create a values.local.yaml file in charts/lfx-v2-fga-sync/ with your custom values
+make helm-install-local
 ```
 
 ## 🔧 Configuration
