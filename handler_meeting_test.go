@@ -55,10 +55,11 @@ func TestMeetingUpdateAccessHandler(t *testing.T) {
 					ContinuationToken: "",
 				}, nil).Once()
 
-				// Mock the Write operation - expect 8 tuples:
-				// 1 public viewer, 1 project relation, 2 committees, 2 project organizers, 2 meeting organizers
+				// Mock the Write operation - expect 11 tuples:
+				// 1 public viewer, 1 project relation, 1 project#meeting_organizer relation,
+				// 2 committees, 2 committee#member participants, 2 project organizers, 2 meeting organizers
 				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
-					return len(req.Writes) == 8 && len(req.Deletes) == 0
+					return len(req.Writes) == 11 && len(req.Deletes) == 0
 				})).Return(&ClientWriteResponse{}, nil).Once()
 
 				// Mock cache operations
@@ -96,9 +97,9 @@ func TestMeetingUpdateAccessHandler(t *testing.T) {
 					ContinuationToken: "",
 				}, nil).Once()
 
-				// Mock the Write operation - expect 2 tuples: 1 project relation, 1 meeting organizer
+				// Mock the Write operation - expect 3 tuples: 1 project relation, 1 project#meeting_organizer relation, 1 meeting organizer
 				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
-					return len(req.Writes) == 2 && len(req.Deletes) == 0
+					return len(req.Writes) == 3 && len(req.Deletes) == 0
 				})).Return(&ClientWriteResponse{}, nil).Once()
 
 				// Mock cache operations
@@ -149,9 +150,9 @@ func TestMeetingUpdateAccessHandler(t *testing.T) {
 					ContinuationToken: "",
 				}, nil).Once()
 
-				// Mock the Write operation - expect 2 tuples: 1 project relation, 1 meeting organizer
+				// Mock the Write operation - expect 3 tuples: 1 project relation, 1 project#meeting_organizer relation, 1 meeting organizer
 				service.fgaService.client.(*MockFgaClient).On("Write", mock.Anything, mock.MatchedBy(func(req ClientWriteRequest) bool {
-					return len(req.Writes) == 2 && len(req.Deletes) == 0
+					return len(req.Writes) == 3 && len(req.Deletes) == 0
 				})).Return(&ClientWriteResponse{}, nil).Once()
 
 				// Mock cache operations

@@ -22,7 +22,11 @@ type meetingStub struct {
 }
 
 // buildMeetingTuples builds all of the tuples for a meeting object.
-func (h *HandlerService) buildMeetingTuples(ctx context.Context, object string, meeting *meetingStub) ([]client.ClientTupleKey, error) {
+func (h *HandlerService) buildMeetingTuples(
+	ctx context.Context,
+	object string,
+	meeting *meetingStub,
+) ([]client.ClientTupleKey, error) {
 	tuples := h.fgaService.NewTupleKeySlice(4)
 
 	// Convert the "public" attribute to a "user:*" relation.
@@ -32,12 +36,24 @@ func (h *HandlerService) buildMeetingTuples(ctx context.Context, object string, 
 
 	// Add the project relation to associate this meeting with its project
 	if meeting.ProjectUID != "" {
-		tuples = append(tuples, h.fgaService.TupleKey(constants.ObjectTypeProject+meeting.ProjectUID, constants.RelationProject, object))
+		tuples = append(
+			tuples,
+			h.fgaService.TupleKey(constants.ObjectTypeProject+meeting.ProjectUID, constants.RelationProject, object),
+			h.fgaService.TupleKey(
+				meeting.ProjectUID+"#"+constants.RelationMeetingOrganizer,
+				constants.RelationOrganizer,
+				object,
+			),
+		)
 	}
 
 	// Each committee set on the meeting according to the payload should have a committee relation with the meeting.
 	for _, committee := range meeting.Committees {
-		tuples = append(tuples, h.fgaService.TupleKey(constants.ObjectTypeCommittee+committee, constants.RelationCommittee, object))
+		tuples = append(
+			tuples,
+			h.fgaService.TupleKey(constants.ObjectTypeCommittee+committee, constants.RelationCommittee, object),
+			h.fgaService.TupleKey(committee+"#"+constants.RelationMember, constants.RelationParticipant, object),
+		)
 	}
 
 	// Query the project's meeting organizers from OpenFGA to give each project-level meeting
@@ -45,7 +61,12 @@ func (h *HandlerService) buildMeetingTuples(ctx context.Context, object string, 
 	projectObject := constants.ObjectTypeProject + meeting.ProjectUID
 	projectOrganizers, err := h.fgaService.GetTuplesByRelation(ctx, projectObject, constants.RelationMeetingOrganizer)
 	if err != nil {
-		logger.With(errKey, err, "project", projectObject).WarnContext(ctx, "failed to read project tuples, continuing without project organizers")
+		logger.WarnContext(
+			ctx,
+			"failed to read project tuples, continuing without project organizers",
+			errKey, err,
+			"project", projectObject,
+		)
 		// Continue without project organizers rather than failing the entire update
 	} else {
 		for _, tuple := range projectOrganizers {
@@ -55,7 +76,10 @@ func (h *HandlerService) buildMeetingTuples(ctx context.Context, object string, 
 
 	// Each organizer set on the meeting according to the payload should get the organizer relation.
 	for _, principal := range meeting.Organizers {
-		tuples = append(tuples, h.fgaService.TupleKey(constants.ObjectTypeUser+principal, constants.RelationOrganizer, object))
+		tuples = append(
+			tuples,
+			h.fgaService.TupleKey(constants.ObjectTypeUser+principal, constants.RelationOrganizer, object),
+		)
 	}
 
 	return tuples, nil
@@ -125,44 +149,7 @@ func (h *HandlerService) meetingUpdateAccessHandler(message INatsMsg) error {
 //
 // This should only happen when a meeting is deleted.
 func (h *HandlerService) meetingDeleteAllAccessHandler(message INatsMsg) error {
-	ctx := context.Background()
-
-	logger.With("message", string(message.Data())).InfoContext(ctx, "handling meeting access control delete all")
-
-	meetingUID := string(message.Data())
-	if meetingUID == "" {
-		logger.ErrorContext(ctx, "empty deletion payload")
-		return errors.New("empty deletion payload")
-	}
-	if meetingUID[0] == '{' || meetingUID[0] == '[' || meetingUID[0] == '"' {
-		// This event payload is not supposed to be serialized.
-		logger.ErrorContext(ctx, "unsupported deletion payload")
-		return errors.New("unsupported deletion payload")
-	}
-
-	object := constants.ObjectTypeMeeting + meetingUID
-
-	// Since this is a delete, we can call fgaSyncObjectRelationships directly
-	// with a zero-value (nil) slice.
-	tuplesWrites, tuplesDeletes, err := h.fgaService.SyncObjectTuples(ctx, object, nil)
-	if err != nil {
-		logger.With(errKey, err, "object", object).ErrorContext(ctx, "failed to sync tuples")
-		return err
-	}
-
-	logger.With("object", object, "writes", tuplesWrites, "deletes", tuplesDeletes).InfoContext(ctx, "synced tuples")
-
-	if message.Reply() != "" {
-		// Send a reply if an inbox was provided.
-		if err = message.Respond([]byte("OK")); err != nil {
-			logger.With(errKey, err).WarnContext(ctx, "failed to send reply")
-			return err
-		}
-
-		logger.With("object", object).InfoContext(ctx, "sent meeting access control delete all response")
-	}
-
-	return nil
+	return h.processDeleteAllAccessMessage(message, constants.ObjectTypeMeeting, "meeting")
 }
 
 type registrantStub struct {
@@ -174,11 +161,27 @@ type registrantStub struct {
 	Host bool `json:"host"`
 }
 
-// meetingRegistrantAddHandler handles adding a registrant to a meeting.
-func (h *HandlerService) meetingRegistrantAddHandler(message INatsMsg) error {
+// registrantOperation defines the type of operation to perform on a registrant
+type registrantOperation int
+
+const (
+	registrantAdd registrantOperation = iota
+	registrantRemove
+)
+
+// processRegistrantMessage handles the complete message processing flow for registrant operations
+func (h *HandlerService) processRegistrantMessage(message INatsMsg, operation registrantOperation) error {
 	ctx := context.Background()
 
-	logger.With("message", string(message.Data())).InfoContext(ctx, "handling meeting registrant add")
+	// Log the operation type
+	operationType := "add"
+	responseMsg := "sent registrant add response"
+	if operation == registrantRemove {
+		operationType = "remove"
+		responseMsg = "sent registrant remove response"
+	}
+
+	logger.With("message", string(message.Data())).InfoContext(ctx, "handling meeting registrant "+operationType)
 
 	// Parse the event data.
 	registrant := new(registrantStub)
@@ -198,98 +201,85 @@ func (h *HandlerService) meetingRegistrantAddHandler(message INatsMsg) error {
 		return errors.New("meeting UID not found")
 	}
 
-	meetingObject := constants.ObjectTypeMeeting + registrant.MeetingUID
-	userPrincipal := constants.ObjectTypeUser + registrant.UID
-
-	// Determine the relation based on whether they are a host.
-	// Host implies participant, so we only need to add the host relation.
-	relation := constants.RelationParticipant
-	if registrant.Host {
-		relation = constants.RelationHost
-	}
-
-	// Write the tuple directly (not using SyncObjectTuples since we're only adding one specific relation).
-	err = h.fgaService.WriteTuple(ctx, userPrincipal, relation, meetingObject)
+	// Perform the FGA operation
+	err = h.handleRegistrantOperation(ctx, registrant, operation)
 	if err != nil {
-		logger.With(errKey, err, "user", userPrincipal, "relation", relation, "meeting", meetingObject).ErrorContext(ctx, "failed to write registrant tuple")
 		return err
 	}
 
-	logger.With(
-		"user", userPrincipal,
-		"relation", relation,
-		"meeting", meetingObject,
-	).InfoContext(ctx, "added registrant to meeting")
-
+	// Send reply if requested
 	if message.Reply() != "" {
-		// Send a reply if an inbox was provided.
 		if err = message.Respond([]byte("OK")); err != nil {
 			logger.With(errKey, err).WarnContext(ctx, "failed to send reply")
 			return err
 		}
 
-		logger.With("meeting", meetingObject, "registrant", userPrincipal).InfoContext(ctx, "sent registrant add response")
+		logger.InfoContext(ctx, responseMsg,
+			"meeting", constants.ObjectTypeMeeting+registrant.MeetingUID,
+			"registrant", constants.ObjectTypeUser+registrant.UID,
+		)
 	}
 
 	return nil
 }
 
-// meetingRegistrantRemoveHandler handles removing a registrant from a meeting.
-func (h *HandlerService) meetingRegistrantRemoveHandler(message INatsMsg) error {
-	ctx := context.Background()
-
-	logger.With("message", string(message.Data())).InfoContext(ctx, "handling meeting registrant remove")
-
-	// Parse the event data.
-	registrant := new(registrantStub)
-	err := json.Unmarshal(message.Data(), registrant)
-	if err != nil {
-		logger.With(errKey, err).ErrorContext(ctx, "event data parse error")
-		return err
-	}
-
-	// Validate required fields.
-	if registrant.UID == "" {
-		logger.ErrorContext(ctx, "registrant UID not found")
-		return errors.New("registrant UID not found")
-	}
-	if registrant.MeetingUID == "" {
-		logger.ErrorContext(ctx, "meeting UID not found")
-		return errors.New("meeting UID not found")
-	}
-
+// handleRegistrantOperation handles the FGA operation for adding/removing registrants
+func (h *HandlerService) handleRegistrantOperation(
+	ctx context.Context,
+	registrant *registrantStub,
+	operation registrantOperation,
+) error {
 	meetingObject := constants.ObjectTypeMeeting + registrant.MeetingUID
 	userPrincipal := constants.ObjectTypeUser + registrant.UID
 
-	// Determine the relation to remove based on whether they were a host.
-	// If they were a host, remove the host relation. Otherwise, remove participant.
+	// Determine the relation based on whether they are a host
 	relation := constants.RelationParticipant
 	if registrant.Host {
 		relation = constants.RelationHost
 	}
 
-	// Delete the tuple directly.
-	err = h.fgaService.DeleteTuple(ctx, userPrincipal, relation, meetingObject)
+	var err error
+	var operationName string
+
+	switch operation {
+	case registrantAdd:
+		operationName = "write"
+		err = h.fgaService.WriteTuple(ctx, userPrincipal, relation, meetingObject)
+	case registrantRemove:
+		operationName = "delete"
+		err = h.fgaService.DeleteTuple(ctx, userPrincipal, relation, meetingObject)
+	}
+
 	if err != nil {
-		logger.With(errKey, err, "user", userPrincipal, "relation", relation, "meeting", meetingObject).ErrorContext(ctx, "failed to delete registrant tuple")
+		logger.ErrorContext(ctx, "failed to "+operationName+" registrant tuple",
+			errKey, err,
+			"user", userPrincipal,
+			"relation", relation,
+			"meeting", meetingObject,
+		)
 		return err
+	}
+
+	actionName := "added registrant to"
+	if operation == registrantRemove {
+		actionName = "removed registrant from"
 	}
 
 	logger.With(
 		"user", userPrincipal,
 		"relation", relation,
 		"meeting", meetingObject,
-	).InfoContext(ctx, "removed registrant from meeting")
-
-	if message.Reply() != "" {
-		// Send a reply if an inbox was provided.
-		if err = message.Respond([]byte("OK")); err != nil {
-			logger.With(errKey, err).WarnContext(ctx, "failed to send reply")
-			return err
-		}
-
-		logger.With("meeting", meetingObject, "registrant", userPrincipal).InfoContext(ctx, "sent registrant remove response")
-	}
+	).InfoContext(ctx, actionName+" meeting")
 
 	return nil
+}
+
+// meetingRegistrantAddHandler handles adding a registrant to a meeting.
+func (h *HandlerService) meetingRegistrantAddHandler(message INatsMsg) error {
+	return h.processRegistrantMessage(message, registrantAdd)
+}
+
+// meetingRegistrantRemoveHandler handles removing a registrant from a meeting.
+func (h *HandlerService) meetingRegistrantRemoveHandler(message INatsMsg) error {
+	return h.processRegistrantMessage(message, registrantRemove)
 }

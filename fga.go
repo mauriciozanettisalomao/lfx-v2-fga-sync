@@ -261,7 +261,11 @@ func (s FgaService) invalidateCache(ctx context.Context) error {
 
 // WriteAndDeleteTuples writes and/or deletes the given tuples to/from OpenFGA.
 // This is a general-purpose method for modifying tuples without reading existing state.
-func (s FgaService) WriteAndDeleteTuples(ctx context.Context, writes []ClientTupleKey, deletes []ClientTupleKeyWithoutCondition) error {
+func (s FgaService) WriteAndDeleteTuples(
+	ctx context.Context,
+	writes []ClientTupleKey,
+	deletes []ClientTupleKeyWithoutCondition,
+) error {
 	// Return early if there's nothing to do
 	if len(writes) == 0 && len(deletes) == 0 {
 		return nil

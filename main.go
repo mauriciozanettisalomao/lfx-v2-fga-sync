@@ -275,7 +275,7 @@ type subscriptionConfig struct {
 }
 
 // subscribeToSubject subscribes to a single NATS subject with error handling and logging.
-func subscribeToSubject(subject string, handler HandlerFunc, description string, queue string) error {
+func subscribeToSubject(subject, description, queue string, handler HandlerFunc) error {
 	if _, err := natsConn.QueueSubscribe(subject, queue, func(msg *nats.Msg) {
 		if errHandler := handler(&NatsMsg{msg}); errHandler != nil {
 			logger.Error("error handling "+description+" request",
@@ -341,7 +341,7 @@ func createQueueSubscriptions(handlerService HandlerService) error {
 
 	// Subscribe to each subject using the helper function
 	for _, config := range subscriptions {
-		if err := subscribeToSubject(config.subject, config.handler, config.description, queue); err != nil {
+		if err := subscribeToSubject(config.subject, config.description, queue, config.handler); err != nil {
 			return err
 		}
 	}
