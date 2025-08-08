@@ -8,16 +8,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
+	"github.com/linuxfoundation/lfx-v2-fga-sync/pkg/constants"
 )
 
 // TODO: update this payload schema to come from the project service
 // Ticket https://linuxfoundation.atlassian.net/browse/LFXV2-147
 type projectStub struct {
-	UID       string   `json:"uid"`
-	Public    bool     `json:"public"`
-	ParentUID string   `json:"parent_uid"`
-	Writers   []string `json:"writers"`
-	Auditors  []string `json:"auditors"`
+	UID               string   `json:"uid"`
+	Public            bool     `json:"public"`
+	ParentUID         string   `json:"parent_uid"`
+	Writers           []string `json:"writers"`
+	Auditors          []string `json:"auditors"`
+	MeetingOrganizers []string `json:"meeting_organizers"`
 }
 
 // projectUpdateAccessHandler handles project access control updates.
@@ -41,28 +44,28 @@ func (h *HandlerService) projectUpdateAccessHandler(message INatsMsg) error {
 		return errors.New("project ID not found")
 	}
 
-	object := "project:" + project.UID
+	object := constants.ObjectTypeProject + project.UID
 
 	// Build a list of tuples to sync.
 	tuples := h.fgaService.NewTupleKeySlice(4)
 
 	// Convert the "public" attribute to a "user:*" relation.
 	if project.Public {
-		tuples = append(tuples, h.fgaService.TupleKey("user:*", "viewer", object))
+		tuples = append(tuples, h.fgaService.TupleKey(constants.UserWildcard, constants.RelationViewer, object))
 	}
 
 	// Handle the parent relation.
 	if project.ParentUID != "" {
-		tuples = append(tuples, h.fgaService.TupleKey("project:"+project.ParentUID, "parent", object))
+		tuples = append(tuples, h.fgaService.TupleKey(constants.ObjectTypeProject+project.ParentUID, constants.RelationParent, object))
 	}
 
 	// Add each principal from the object as the corresponding relationship tuple
 	// (as defined in the OpenFGA schema).
 	for _, principal := range project.Writers {
-		tuples = append(tuples, h.fgaService.TupleKey("user:"+principal, "writer", object))
+		tuples = append(tuples, h.fgaService.TupleKey(constants.ObjectTypeUser+principal, constants.RelationWriter, object))
 	}
 	for _, principal := range project.Auditors {
-		tuples = append(tuples, h.fgaService.TupleKey("user:"+principal, "auditor", object))
+		tuples = append(tuples, h.fgaService.TupleKey(constants.ObjectTypeUser+principal, constants.RelationAuditor, object))
 	}
 
 	tuplesWrites, tuplesDeletes, err := h.fgaService.SyncObjectTuples(ctx, object, tuples)
@@ -108,7 +111,7 @@ func (h *HandlerService) projectDeleteAllAccessHandler(message INatsMsg) error {
 		return errors.New("unsupported deletion payload")
 	}
 
-	object := "project:" + projectUID
+	object := constants.ObjectTypeProject + projectUID
 
 	// Since this is a delete, we can call fgaSyncObjectRelationships directly
 	// with a zero-value (nil) slice.
