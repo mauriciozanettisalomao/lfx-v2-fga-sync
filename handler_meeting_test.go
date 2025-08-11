@@ -578,7 +578,7 @@ func TestMeetingRegistrantRemoveHandler(t *testing.T) {
 		},
 		{
 			name:         "missing meeting UID",
-			messageData:  mustJSON(registrantStub{UID: "user-123"}),
+			messageData:  mustJSON(registrantStub{Username: "user-123"}),
 			replySubject: "reply.subject",
 			setupMocks: func(service *HandlerService, msg *MockNatsMsg) {
 				// No mocks needed - should fail at meeting UID validation

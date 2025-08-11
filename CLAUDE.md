@@ -73,7 +73,7 @@ make gosec         # Run security scanner
 ### Access Check Request (`lfx.access_check.request`)
 
 ```
-project:7cad5a8d-19d0-41a4-81a6-043453daf9ee#admin@user:456
+project:7cad5a8d-19d0-41a4-81a6-043453daf9ee#writer@user:456
 project:7cad5a8d-19d0-41a4-81a6-043453daf9ee#viewer@user:456
 ```
 

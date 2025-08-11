@@ -285,14 +285,17 @@ func subscribeToSubject(subject, description, queue string, handler HandlerFunc)
 			)
 		}
 	}); err != nil {
-		logger.With(
+		logger.Error("error subscribing to NATS subject",
 			errKey, err,
 			"subject", subject,
 			"queue", queue,
-		).Error("error subscribing to NATS subject")
+		)
 		return err
 	}
-	logger.With("subject", subject).Info("subscribed to NATS subject")
+	logger.Info("subscribed to NATS subject",
+		"subject", subject,
+		"queue", queue,
+	)
 	return nil
 }
 

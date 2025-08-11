@@ -114,7 +114,7 @@ func (h *HandlerService) meetingUpdateAccessHandler(message INatsMsg) error {
 			return err
 		}
 
-		logger.With("object", object).InfoContext(ctx, "sent project access control update response")
+		logger.With("object", object).InfoContext(ctx, "sent meeting access control update response")
 	}
 
 	return nil

@@ -25,7 +25,7 @@ func TestCacheKeyEncoding(t *testing.T) {
 	}{
 		{
 			name:        "simple relation",
-			relationKey: "project:123#admin@user:456",
+			relationKey: "project:123#writer@user:456",
 			wantPrefix:  "rel.",
 		},
 		{
@@ -83,35 +83,35 @@ func TestExtractCheckRequests(t *testing.T) {
 	}{
 		{
 			name:          "single valid request",
-			payload:       []byte("project:123#admin@user:456"),
+			payload:       []byte("project:123#writer@user:456"),
 			expectError:   false,
 			expectedCount: 1,
 			description:   "should parse single check request",
 		},
 		{
 			name:          "multiple valid requests",
-			payload:       []byte("project:123#admin@user:456\nproject:789#viewer@user:456"),
+			payload:       []byte("project:123#writer@user:456\nproject:789#viewer@user:456"),
 			expectError:   false,
 			expectedCount: 2,
 			description:   "should parse multiple check requests separated by newlines",
 		},
 		{
 			name:          "empty lines ignored",
-			payload:       []byte("project:123#admin@user:456\n\nproject:789#viewer@user:456\n"),
+			payload:       []byte("project:123#writer@user:456\n\nproject:789#viewer@user:456\n"),
 			expectError:   false,
 			expectedCount: 2,
 			description:   "should ignore empty lines",
 		},
 		{
 			name:          "invalid format - missing @",
-			payload:       []byte("project:123#adminuser:456"),
+			payload:       []byte("project:123#writeruser:456"),
 			expectError:   true,
 			expectedCount: 0,
 			description:   "should error on missing @ separator",
 		},
 		{
 			name:          "invalid format - missing #",
-			payload:       []byte("project:123admin@user:456"),
+			payload:       []byte("project:123writer@user:456"),
 			expectError:   true,
 			expectedCount: 0,
 			description:   "should error on missing # separator",
@@ -173,14 +173,14 @@ func TestReadObjectTuples(t *testing.T) {
 					return req.Object != nil && *req.Object == "project:123"
 				}), mock.Anything).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
-						{Key: openfga.TupleKey{User: "user:456", Relation: "admin", Object: "project:123"}},
+						{Key: openfga.TupleKey{User: "user:456", Relation: "writer", Object: "project:123"}},
 						{Key: openfga.TupleKey{User: "user:789", Relation: "viewer", Object: "project:123"}},
 					},
 					ContinuationToken: "",
 				}, nil).Once()
 			},
 			expectedTuples: []openfga.Tuple{
-				{Key: openfga.TupleKey{User: "user:456", Relation: "admin", Object: "project:123"}},
+				{Key: openfga.TupleKey{User: "user:456", Relation: "writer", Object: "project:123"}},
 				{Key: openfga.TupleKey{User: "user:789", Relation: "viewer", Object: "project:123"}},
 			},
 			expectError: false,
@@ -197,7 +197,7 @@ func TestReadObjectTuples(t *testing.T) {
 					return opts.ContinuationToken == nil
 				})).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
-						{Key: openfga.TupleKey{User: "user:111", Relation: "admin", Object: "project:456"}},
+						{Key: openfga.TupleKey{User: "user:111", Relation: "writer", Object: "project:456"}},
 						{Key: openfga.TupleKey{User: "user:222", Relation: "writer", Object: "project:456"}},
 					},
 					ContinuationToken: "page-2-token",
@@ -217,7 +217,7 @@ func TestReadObjectTuples(t *testing.T) {
 				}, nil).Once()
 			},
 			expectedTuples: []openfga.Tuple{
-				{Key: openfga.TupleKey{User: "user:111", Relation: "admin", Object: "project:456"}},
+				{Key: openfga.TupleKey{User: "user:111", Relation: "writer", Object: "project:456"}},
 				{Key: openfga.TupleKey{User: "user:222", Relation: "writer", Object: "project:456"}},
 				{Key: openfga.TupleKey{User: "user:333", Relation: "viewer", Object: "project:456"}},
 				{Key: openfga.TupleKey{User: "group:devs", Relation: "writer", Object: "project:456"}},
@@ -263,7 +263,7 @@ func TestReadObjectTuples(t *testing.T) {
 					return opts.ContinuationToken == nil
 				})).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
-						{Key: openfga.TupleKey{User: "user:100", Relation: "admin", Object: "project:partial"}},
+						{Key: openfga.TupleKey{User: "user:100", Relation: "writer", Object: "project:partial"}},
 					},
 					ContinuationToken: "error-token",
 				}, nil).Once()
@@ -288,7 +288,7 @@ func TestReadObjectTuples(t *testing.T) {
 				}), mock.Anything).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
 						{Key: openfga.TupleKey{User: "user:*", Relation: "viewer", Object: "project:public"}},
-						{Key: openfga.TupleKey{User: "group:admins", Relation: "admin", Object: "project:public"}},
+						{Key: openfga.TupleKey{User: "group:writers", Relation: "writer", Object: "project:public"}},
 						{Key: openfga.TupleKey{User: "user:123", Relation: "writer", Object: "project:public"}},
 					},
 					ContinuationToken: "",
@@ -296,7 +296,7 @@ func TestReadObjectTuples(t *testing.T) {
 			},
 			expectedTuples: []openfga.Tuple{
 				{Key: openfga.TupleKey{User: "user:*", Relation: "viewer", Object: "project:public"}},
-				{Key: openfga.TupleKey{User: "group:admins", Relation: "admin", Object: "project:public"}},
+				{Key: openfga.TupleKey{User: "group:writers", Relation: "writer", Object: "project:public"}},
 				{Key: openfga.TupleKey{User: "user:123", Relation: "writer", Object: "project:public"}},
 			},
 			expectError: false,
@@ -364,7 +364,7 @@ func TestSyncObjectTuples_RelationMapping(t *testing.T) {
 			name:   "relations with object field empty",
 			object: "project:123",
 			relations: []ClientTupleKey{
-				{User: "user:456", Relation: "admin", Object: ""},
+				{User: "user:456", Relation: "writer", Object: ""},
 				{User: "user:789", Relation: "viewer", Object: ""},
 			},
 			expectedCount: 2,
@@ -374,7 +374,7 @@ func TestSyncObjectTuples_RelationMapping(t *testing.T) {
 			name:   "relations with matching object",
 			object: "project:123",
 			relations: []ClientTupleKey{
-				{User: "user:456", Relation: "admin", Object: "project:123"},
+				{User: "user:456", Relation: "writer", Object: "project:123"},
 				{User: "user:789", Relation: "viewer", Object: "project:123"},
 			},
 			expectedCount: 2,
@@ -384,7 +384,7 @@ func TestSyncObjectTuples_RelationMapping(t *testing.T) {
 			name:   "relations with different object",
 			object: "project:123",
 			relations: []ClientTupleKey{
-				{User: "user:456", Relation: "admin", Object: "project:999"},
+				{User: "user:456", Relation: "writer", Object: "project:999"},
 				{User: "user:789", Relation: "viewer", Object: "project:123"},
 			},
 			expectedCount: 1,
@@ -443,10 +443,10 @@ func TestCacheKeyGeneration(t *testing.T) {
 			name: "standard tuple",
 			tuple: ClientBatchCheckItem{
 				User:     "user:123",
-				Relation: "admin",
+				Relation: "writer",
 				Object:   "project:456",
 			},
-			wantKey: "rel." + encoder.EncodeToString([]byte("project:456#admin@user:123")),
+			wantKey: "rel." + encoder.EncodeToString([]byte("project:456#writer@user:123")),
 		},
 		{
 			name: "wildcard user",
@@ -620,11 +620,11 @@ func TestTupleKey(t *testing.T) {
 		{
 			name:     "standard tuple",
 			user:     "user:123",
-			relation: "admin",
+			relation: "writer",
 			object:   "project:456",
 			want: ClientTupleKey{
 				User:     "user:123",
-				Relation: "admin",
+				Relation: "writer",
 				Object:   "project:456",
 			},
 		},
@@ -684,7 +684,7 @@ func TestGetTuplesByRelation(t *testing.T) {
 				}), mock.Anything).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
 						{Key: openfga.TupleKey{User: "user:organizer1", Relation: "meeting_coordinator", Object: "project:123"}},
-						{Key: openfga.TupleKey{User: "user:admin1", Relation: "admin", Object: "project:123"}},
+						{Key: openfga.TupleKey{User: "user:writer1", Relation: "writer", Object: "project:123"}},
 						{Key: openfga.TupleKey{User: "user:organizer2", Relation: "meeting_coordinator", Object: "project:123"}},
 						{Key: openfga.TupleKey{User: "user:viewer1", Relation: "viewer", Object: "project:123"}},
 					},
@@ -699,27 +699,27 @@ func TestGetTuplesByRelation(t *testing.T) {
 			description: "should return only meeting_coordinator tuples",
 		},
 		{
-			name:     "filter by admin relation",
+			name:     "filter by writer relation",
 			object:   "project:456",
-			relation: "admin",
+			relation: "writer",
 			mockSetup: func(m *MockFgaClient) {
 				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
 					return req.Object != nil && *req.Object == "project:456"
 				}), mock.Anything).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
-						{Key: openfga.TupleKey{User: "user:admin1", Relation: "admin", Object: "project:456"}},
+						{Key: openfga.TupleKey{User: "user:organizer1", Relation: "meeting_coordinator", Object: "project:456"}},
 						{Key: openfga.TupleKey{User: "user:writer1", Relation: "writer", Object: "project:456"}},
-						{Key: openfga.TupleKey{User: "user:admin2", Relation: "admin", Object: "project:456"}},
+						{Key: openfga.TupleKey{User: "user:writer2", Relation: "writer", Object: "project:456"}},
 					},
 					ContinuationToken: "",
 				}, nil).Once()
 			},
 			expectedTuples: []openfga.Tuple{
-				{Key: openfga.TupleKey{User: "user:admin1", Relation: "admin", Object: "project:456"}},
-				{Key: openfga.TupleKey{User: "user:admin2", Relation: "admin", Object: "project:456"}},
+				{Key: openfga.TupleKey{User: "user:writer1", Relation: "writer", Object: "project:456"}},
+				{Key: openfga.TupleKey{User: "user:writer2", Relation: "writer", Object: "project:456"}},
 			},
 			expectError: false,
-			description: "should return only admin tuples",
+			description: "should return only writer tuples",
 		},
 		{
 			name:     "no matching relation",
@@ -730,7 +730,7 @@ func TestGetTuplesByRelation(t *testing.T) {
 					return req.Object != nil && *req.Object == "project:789"
 				}), mock.Anything).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
-						{Key: openfga.TupleKey{User: "user:admin1", Relation: "admin", Object: "project:789"}},
+						{Key: openfga.TupleKey{User: "user:writer1", Relation: "writer", Object: "project:789"}},
 						{Key: openfga.TupleKey{User: "user:viewer1", Relation: "viewer", Object: "project:789"}},
 					},
 					ContinuationToken: "",
@@ -743,7 +743,7 @@ func TestGetTuplesByRelation(t *testing.T) {
 		{
 			name:     "empty tuples from object",
 			object:   "project:empty",
-			relation: "admin",
+			relation: "writer",
 			mockSetup: func(m *MockFgaClient) {
 				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
 					return req.Object != nil && *req.Object == "project:empty"
@@ -759,7 +759,7 @@ func TestGetTuplesByRelation(t *testing.T) {
 		{
 			name:     "read error from OpenFGA",
 			object:   "project:error",
-			relation: "admin",
+			relation: "writer",
 			mockSetup: func(m *MockFgaClient) {
 				m.On("Read", mock.Anything, mock.MatchedBy(func(req ClientReadRequest) bool {
 					return req.Object != nil && *req.Object == "project:error"
@@ -806,7 +806,7 @@ func TestGetTuplesByRelation(t *testing.T) {
 				})).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
 						{Key: openfga.TupleKey{User: "user:writer1", Relation: "writer", Object: "project:paginated"}},
-						{Key: openfga.TupleKey{User: "user:admin1", Relation: "admin", Object: "project:paginated"}},
+						{Key: openfga.TupleKey{User: "user:viewer1", Relation: "viewer", Object: "project:paginated"}},
 					},
 					ContinuationToken: "page-2",
 				}, nil).Once()
@@ -819,7 +819,7 @@ func TestGetTuplesByRelation(t *testing.T) {
 				})).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
 						{Key: openfga.TupleKey{User: "user:writer2", Relation: "writer", Object: "project:paginated"}},
-						{Key: openfga.TupleKey{User: "user:viewer1", Relation: "viewer", Object: "project:paginated"}},
+						{Key: openfga.TupleKey{User: "user:viewer2", Relation: "viewer", Object: "project:paginated"}},
 					},
 					ContinuationToken: "",
 				}, nil).Once()

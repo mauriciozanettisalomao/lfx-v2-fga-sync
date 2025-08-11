@@ -280,7 +280,7 @@ func TestProjectDeleteAllAccessHandler(t *testing.T) {
 					return req.Object != nil && *req.Object == "project:test-project-123"
 				}), mock.Anything).Return(&ClientReadResponse{
 					Tuples: []openfga.Tuple{
-						{Key: openfga.TupleKey{User: "user:456", Relation: "admin", Object: "project:test-project-123"}},
+						{Key: openfga.TupleKey{User: "user:456", Relation: "writer", Object: "project:test-project-123"}},
 						{Key: openfga.TupleKey{User: "user:789", Relation: "viewer", Object: "project:test-project-123"}},
 					},
 					ContinuationToken: "",
