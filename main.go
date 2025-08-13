@@ -340,6 +340,16 @@ func createQueueSubscriptions(handlerService HandlerService) error {
 			handler:     handlerService.meetingRegistrantRemoveHandler,
 			description: "meeting registrant remove",
 		},
+		{
+			subject:     constants.CommitteeUpdateAccessSubject,
+			handler:     handlerService.committeeUpdateAccessHandler,
+			description: "committee update access",
+		},
+		{
+			subject:     constants.CommitteeDeleteAllAccessSubject,
+			handler:     handlerService.committeeDeleteAllAccessHandler,
+			description: "committee delete all access",
+		},
 	}
 
 	// Subscribe to each subject using the helper function
