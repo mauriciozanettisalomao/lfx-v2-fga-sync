@@ -15,6 +15,7 @@ spec:
   bucket: {{ .Values.nats.cacheFgaKvBucket.name }}
   history: {{ .Values.nats.cacheFgaKvBucket.history }}
   storage: "{{ .Values.nats.cacheFgaKvBucket.storage }}"
+  ttl: {{ .Values.nats.cacheFgaKvBucket.ttl }}
   maxValueSize: {{ .Values.nats.cacheFgaKvBucket.maxValueSize }}
   maxBytes: {{ .Values.nats.cacheFgaKvBucket.maxBytes }}
   compression: {{ .Values.nats.cacheFgaKvBucket.compression }}

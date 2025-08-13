@@ -59,13 +59,13 @@ func TestAccessCheckHandler(t *testing.T) {
 	}{
 		{
 			name:         "valid single check request",
-			messageData:  []byte("project:123#admin@user:456"),
+			messageData:  []byte("project:123#writer@user:456"),
 			replySubject: "reply.subject",
 			setupMocks: func(service HandlerService, msg *MockNatsMsg) {
 				msg.On("Respond", mock.MatchedBy(func(data []byte) bool {
 					// Expect a JSON response with check results
 					response := string(data)
-					return strings.Contains(response, "project:123#admin@user:456\ttrue")
+					return strings.Contains(response, "project:123#writer@user:456\ttrue")
 				})).Return(nil).Once()
 				// Create the result map for single request
 				resultMap := make(map[string]openfga.BatchCheckSingleResult)
@@ -82,13 +82,13 @@ func TestAccessCheckHandler(t *testing.T) {
 		},
 		{
 			name:         "valid multiple check requests",
-			messageData:  []byte("project:123#admin@user:456\nproject:789#viewer@user:456"),
+			messageData:  []byte("project:123#writer@user:456\nproject:789#viewer@user:456"),
 			replySubject: "reply.subject",
 			setupMocks: func(service HandlerService, msg *MockNatsMsg) {
 				msg.On("Respond", mock.MatchedBy(func(data []byte) bool {
 					// Expect response with both check results
 					response := string(data)
-					return strings.Contains(response, "project:123#admin@user:456\ttrue") &&
+					return strings.Contains(response, "project:123#writer@user:456\ttrue") &&
 						strings.Contains(response, "project:789#viewer@user:456\ttrue")
 				})).Return(nil).Once()
 				// Create the result map for multiple requests
@@ -134,7 +134,7 @@ func TestAccessCheckHandler(t *testing.T) {
 		},
 		{
 			name:         "no reply subject - should not respond",
-			messageData:  []byte("project:123#admin@user:456"),
+			messageData:  []byte("project:123#writer@user:456"),
 			replySubject: "",
 			setupMocks: func(service HandlerService, msg *MockNatsMsg) {
 				// No Respond call expected

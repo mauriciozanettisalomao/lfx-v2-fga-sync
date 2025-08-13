@@ -109,7 +109,7 @@ Dependencies you need but should get from [lfx-v2-helm](https://github.com/linux
    nats kv add fga-sync-cache --history=20 --storage=file --max-value-size=10485760 --max-bucket-size=1073741824
 
    # Or using kubectl if running in Kubernetes
-   kubectl exec -n lfx deploy/nats-box -- nats kv add fga-sync-cache --history=20 --storage=file --max-value-size=10485760 --max-bucket-size=1073741824
+   kubectl exec -n lfx deploy/nats-box -- nats kv add fga-sync-cache --history=20 --storage=file --max-value-size=10485760 --max-bucket-size=1073741824 --ttl=3h
    ```
 
 6. **Run the service**:
@@ -142,14 +142,14 @@ docker run -d \
 
 ```bash
 # Deploy using Helm
-helm install lfx-v2-fga-sync ./charts/lfx-v2-fga-sync \
-  --set nats.url=nats://lfx-platform-nats.lfx.svc.cluster.local:4222 \
-  --set fga.apiUrl=http://lfx-platform-openfga.lfx.svc.cluster.local:8080 \
-  --set fga.storeId=01K1GTJZW163H839J3YZHD8ZRY \
-  --set fga.modelId=01K1H4TFHDSBCZVZ5EP6HHDWE6
+helm install lfx-v2-fga-sync ./charts/lfx-v2-fga-sync -n lfx
 
 # Or use Make
 make helm-install
+
+# Optionally deploy with custom local values (values.local.yaml) instead
+# Create a values.local.yaml file in charts/lfx-v2-fga-sync/ with your custom values
+make helm-install-local
 ```
 
 ## 🔧 Configuration
@@ -230,7 +230,8 @@ Below is an example of the project message schema.
   "public": true,
   "parent_uid": "7cad5a8d-19d0-41a4-81a6-043453daf9ef7cad5a8d-19d0-41a4-81a6-043453daf9ee", 
   "writers": ["user1", "user2"],
-  "auditors": ["auditor1"]
+  "auditors": ["auditor1"],
+  "meeting_coordinators": ["coordinator1", "coordinator2"]
 }
 ```
 

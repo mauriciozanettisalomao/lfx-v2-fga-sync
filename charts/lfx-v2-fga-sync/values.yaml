@@ -40,6 +40,8 @@ nats:
     name: fga-sync-cache
     # history is the number of history entries to keep for the KV bucket
     history: 20
+    # ttl is the time to live for the KV bucket
+    ttl: 3h
     # storage is the storage type for the KV bucket
     storage: file
     # maxValueSize is the maximum size of a value in the KV bucket

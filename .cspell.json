@@ -56,7 +56,7 @@
     "unmarshaled",
     "livez",
     "readyz",
-    "adminuser",
+    "writeruser",
     "securecodewarrior",
     "codecov",
     "fieldalignment",
@@ -69,7 +69,8 @@
     "pipefail",
     "slsa",
     "sigstore",
-    "nindent"
+    "nindent",
+    "LFID"
   ],
   "overrides": [
     {
