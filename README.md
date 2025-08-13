@@ -109,7 +109,7 @@ Dependencies you need but should get from [lfx-v2-helm](https://github.com/linux
    nats kv add fga-sync-cache --history=20 --storage=file --max-value-size=10485760 --max-bucket-size=1073741824
 
    # Or using kubectl if running in Kubernetes
-   kubectl exec -n lfx deploy/nats-box -- nats kv add fga-sync-cache --history=20 --storage=file --max-value-size=10485760 --max-bucket-size=1073741824
+   kubectl exec -n lfx deploy/nats-box -- nats kv add fga-sync-cache --history=20 --storage=file --max-value-size=10485760 --max-bucket-size=1073741824 --ttl=3h
    ```
 
 6. **Run the service**:
