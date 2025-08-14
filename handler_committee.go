@@ -25,7 +25,7 @@ type committeeStub struct {
 func (h *HandlerService) committeeUpdateAccessHandler(message INatsMsg) error {
 	ctx := context.Background()
 
-	logger.With("message", string(message.Data())).InfoContext(ctx, "handling project access control update")
+	logger.With("message", string(message.Data())).InfoContext(ctx, "handling committee access control update")
 
 	// Parse the event data.
 	committee := new(committeeStub)
@@ -41,7 +41,7 @@ func (h *HandlerService) committeeUpdateAccessHandler(message INatsMsg) error {
 		return errors.New("committee ID not found")
 	}
 
-	object := constants.ObjectTypeCommittee + committee.UID
+	object := fmt.Sprintf("%s:%s", committee.ObjectType, committee.UID)
 
 	// Build a list of tuples to sync.
 	tuples := h.fgaService.NewTupleKeySlice(4)
@@ -53,7 +53,12 @@ func (h *HandlerService) committeeUpdateAccessHandler(message INatsMsg) error {
 
 	// for parent relation, project relation, etc
 	for reference, value := range committee.References {
-		key := fmt.Sprintf("%s:%s", reference, value)
+		refType := reference
+		if reference == constants.RelationParent {
+			refType = committee.ObjectType
+		}
+
+		key := fmt.Sprintf("%s:%s", refType, value)
 		tuples = append(tuples, h.fgaService.TupleKey(key, reference, object))
 	}
 
