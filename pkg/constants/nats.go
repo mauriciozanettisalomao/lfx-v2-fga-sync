@@ -38,6 +38,14 @@ const (
 	// MeetingRegistrantRemoveSubject is the subject for removing meeting registrants.
 	// The subject is of the form: lfx.remove_registrant.meeting
 	MeetingRegistrantRemoveSubject = "lfx.remove_registrant.meeting"
+
+	// CommitteeUpdateAccessSubject is the subject for the committee access control updates.
+	// The subject is of the form: lfx.update_access.committee
+	CommitteeUpdateAccessSubject = "lfx.update_access.committee"
+
+	// CommitteeDeleteAllAccessSubject is the subject for the committee access control deletion.
+	// The subject is of the form: lfx.delete_all_access.committee
+	CommitteeDeleteAllAccessSubject = "lfx.delete_all_access.committee"
 )
 
 // NATS queue subjects that the FGA sync service handles messages about.
