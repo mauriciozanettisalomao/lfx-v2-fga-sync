@@ -17,6 +17,7 @@ type committeeStub struct {
 	UID        string              `json:"uid"`
 	ObjectType string              `json:"object_type"`
 	Public     bool                `json:"public"`
+	Action     string              `json:"action"`
 	Relations  map[string][]string `json:"relations"`
 	References map[string]string   `json:"references"`
 }
@@ -60,6 +61,18 @@ func (h *HandlerService) committeeUpdateAccessHandler(message INatsMsg) error {
 
 		key := fmt.Sprintf("%s:%s", refType, value)
 		tuples = append(tuples, h.fgaService.TupleKey(key, reference, object))
+
+		if committee.Action == "created" {
+			// inverse relation
+			// For cases where the committee writer/auditor has read access to the project,
+			// we need to add the inverse relation to the project.
+			//
+			// type project
+			// relations
+			//   ...
+			//   define viewer: ... writer from committee or auditor from committee
+			tuples = append(tuples, h.fgaService.TupleKey(object, committee.ObjectType, key))
+		}
 	}
 
 	// Add each principal from the object as the corresponding relationship tuple

@@ -134,10 +134,6 @@ func (s FgaService) getRelationsMap(object string, relations []ClientTupleKey) (
 		switch {
 		case relation.Object == "":
 			relation.Object = object
-		case relation.Object != object:
-			// Not expected to happen, but ensure this function only syncs
-			// relationships for a single object at a time.
-			continue
 		}
 		// OpenFGA uses a composite key for tuples of the form
 		// "project:acme#writer@user:alice", so our "relation@user" map key should
